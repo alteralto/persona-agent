@@ -137,6 +137,9 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 
 func (a *Agent) walkTo(ctx context.Context, x, z int) bool {
 	a.following = ""
+	if math.Hypot(float64(x)-a.pos.X, float64(z)-a.pos.Z) > a.flyAbove() && a.startFlight(ctx, x, z) {
+		return true
+	}
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
 		a.log.Warn("activity goto", "err", err)
 		return false

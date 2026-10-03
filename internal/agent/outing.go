@@ -49,7 +49,7 @@ func (a *Agent) startOuting(ctx context.Context) bool {
 		return false
 	}
 	p := options[rand.IntN(len(options))]
-	far := math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z) > 60
+	far := math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z) > a.flyAbove()
 	if !(far && a.startFlight(ctx, p.X, p.Z)) {
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", p.X, p.Z)}); err != nil {
 			a.log.Warn("outing goto", "err", err)
@@ -108,6 +108,16 @@ func spokenName(nick string) string {
 
 // flyShowOff answers "let's fly!": take off towards a known place 60–150 blocks away, or
 // straight ahead 80 blocks when nothing is known yet.
+// flyAbove is the distance beyond which the bot flies instead of walking. In creative the
+// elytra and rockets are free and walking through a village with no digging and no placing
+// gets stuck, so it flies almost everywhere.
+func (a *Agent) flyAbove() float64 {
+	if a.creative && a.fork {
+		return 20
+	}
+	return 60
+}
+
 func (a *Agent) flyShowOff(ctx context.Context) bool {
 	if !a.havePos {
 		return false

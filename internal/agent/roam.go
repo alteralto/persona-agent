@@ -44,6 +44,22 @@ func (a *Agent) position(ctx context.Context) (explore.Pos, bool, error) {
 
 const stuckFor = 10 * time.Second
 
+// walkTarget is where the current walk is heading, if any.
+func (a *Agent) walkTarget() (int, int, bool) {
+	switch {
+	case a.outing != nil:
+		return a.outing.place.X, a.outing.place.Z, true
+	case a.activity != nil:
+		return a.activity.x, a.activity.z, true
+	case a.trip != nil:
+		x, z := a.trip.target.Center()
+		return x, z, true
+	case a.leading && a.places.Home != nil:
+		return int(a.places.Home.X), int(a.places.Home.Z), true
+	}
+	return 0, 0, false
+}
+
 // checkStuck notices a walk that makes no progress: busy, yet the bot has not moved.
 // It stops the walk and hops a few blocks aside, out of the corner or pit.
 func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool {
@@ -56,6 +72,13 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	}
 	if time.Since(a.stillSince) < stuckFor {
 		return false
+	}
+	// In creative, walls and fences we may not break are simply flown over.
+	if tx, tz, ok := a.walkTarget(); ok && a.creative && a.startFlight(ctx, tx, tz) {
+		a.log.Info("stuck: flying over instead", "x", int(pos.X), "z", int(pos.Z), "to_x", tx, "to_z", tz)
+		a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
+		a.stillPos, a.stillSince = pos, time.Now()
+		return true
 	}
 	angle := rand.Float64() * 2 * math.Pi
 	dist := 6 + rand.Float64()*4
@@ -103,9 +126,8 @@ func (a *Agent) roam(ctx context.Context) {
 		if a.checkFlight(ctx) {
 			return
 		}
-		if a.outing != nil { // landed near the place: walk the last metres
-			p := a.outing.place
-			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", p.X, p.Z)}); err != nil {
+		if x, z, ok := a.walkTarget(); ok { // landed near the target: walk the last metres
+			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
 				a.log.Warn("after flight goto", "err", err)
 			}
 		}
