@@ -49,7 +49,7 @@ const stuckFor = 10 * time.Second
 func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool {
 	// Following keeps the mod "busy" even while standing next to the target, so only walks to
 	// a point (exploration, outing, leading home) are checked.
-	walkingToPoint := a.trip != nil || a.outing != nil || a.leading
+	walkingToPoint := a.trip != nil || a.outing != nil || a.leading || a.activity != nil
 	if !busy || !walkingToPoint || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1 {
 		a.stillPos, a.stillSince = pos, time.Now()
 		return false
@@ -61,7 +61,7 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	dist := 6 + rand.Float64()*4
 	x, z := int(pos.X+dist*math.Cos(angle)), int(pos.Z+dist*math.Sin(angle))
 	a.log.Info("stuck: hopping aside", "x", int(pos.X), "z", int(pos.Z), "to_x", x, "to_z", z)
-	a.outing, a.trip, a.following, a.leading = nil, nil, "", false
+	a.outing, a.trip, a.following, a.leading, a.activity = nil, nil, "", false, nil
 	for _, cmd := range []string{"@stop", fmt.Sprintf("@goto %d %d", x, z)} {
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err != nil {
 			a.log.Warn("unstick", "cmd", cmd, "err", err)
@@ -114,10 +114,20 @@ func (a *Agent) roam(ctx context.Context) {
 		a.checkOuting(ctx, pos)
 		return
 	}
-	if a.following != "" {
+	if a.activity != nil {
+		a.checkActivity(ctx, pos)
+		return
+	}
+	if a.maybeActivity(ctx) {
+		return
+	}
+	if a.following != "" && len(a.cfg.Companions) == 0 {
 		return
 	}
 	if len(a.cfg.Companions) > 0 {
+		if a.following != "" {
+			return
+		}
 		if time.Since(a.lastCommand) >= a.cfg.ExploreAfter {
 			if a.trip != nil {
 				a.cancelTrip(ctx)

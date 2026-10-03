@@ -50,6 +50,8 @@ type Config struct {
 	// PeopleDir: one memory file per person the bot talks to (empty: off).
 	PeopleDir string
 	// AutoCreative: on this server the bot asks for creative mode with CreativeCommand.
+	// ActivityEvery: start something on the bot's own initiative this often (0 = off).
+	ActivityEvery   time.Duration
 	AutoCreative    bool
 	CreativeCommand string
 	// OthersNames: how players call the other bots ("пончик", "nettyan"). A bot line that
@@ -106,8 +108,13 @@ type Agent struct {
 	people  *memory.Store
 
 	creativeAsked time.Time
-	fallSaves     bool
-	fallSavesSet  bool
+
+	activity     *activity
+	lastActivity time.Time
+	lastRequest  time.Time // last time a player asked for an action
+	readSigns    map[string]bool
+	fallSaves    bool
+	fallSavesSet bool
 
 	speaker *voice.Speaker   // nil: text chat only
 	heard   chan voice.Heard // recognized player speech
@@ -126,7 +133,7 @@ type replyJob struct {
 
 func New(cfg Config, mc *mcp.Client, l *laya.Client, llm *giga.Client, log *slog.Logger) *Agent {
 	a := &Agent{cfg: cfg, mc: mc, laya: l, llm: llm, log: log, replyQueue: make(chan replyJob, 1),
-		heard: make(chan voice.Heard, 4), creative: cfg.Creative, journal: newJournal(cfg.JournalPath)}
+		heard: make(chan voice.Heard, 4), creative: cfg.Creative, journal: newJournal(cfg.JournalPath), readSigns: map[string]bool{}}
 	if cfg.PeopleDir != "" {
 		a.people = memory.New(cfg.PeopleDir)
 	}
@@ -298,6 +305,10 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		"laya_ms", time.Since(start).Milliseconds())
 
 	a.journal.record(msg.Nick, source, msg.Text, answers, d, byRule, fromBot)
+	if d.Action != ActWait {
+		a.lastRequest = time.Now()
+		a.activity = nil // a request beats the bot's own plans
+	}
 	a.act(ctx, d.Action, msg.Nick)
 
 	// Answer when called by name or when a command was accepted (so the player hears it).

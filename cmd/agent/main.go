@@ -55,6 +55,7 @@ func main() {
 		JournalPath:     env("JOURNAL_PATH", `data\decisions.jsonl`),
 		PeopleDir:       env("PEOPLE_DIR", `data\people`),
 		AutoCreative:    env("AUTO_CREATIVE", "false") == "true",
+		ActivityEvery:   envDuration("ACTIVITY_EVERY", 90*time.Second),
 		CreativeCommand: env("CREATIVE_COMMAND", "/gamemode creative"),
 		OthersNames:     splitList(env("OTHERS_NAMES", "")),
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),

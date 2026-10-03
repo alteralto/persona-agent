@@ -91,6 +91,7 @@ func (a *Agent) applyFallSaves(ctx context.Context) {
 }
 
 type sign struct {
+	Pos      string  `json:"pos"`
 	Front    string  `json:"front"`
 	Back     string  `json:"back"`
 	Distance float64 `json:"distance"`
