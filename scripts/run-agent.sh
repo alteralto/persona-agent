@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Start the agent for play with NetTyan and Pon4ikYT on agicraft. Secrets come from .env.
 cd "$(dirname "$0")/.." || exit 1
+# No env values starting with "/": Git Bash rewrites them into Windows paths ("/gamemode creative"
+# became "C:/Program Files/Git/gamemode creative"). The creative command is the agent's default.
 export INTRO=false \
   OTHER_BOTS=NetTyan,Pon4ikYT \
   COMPANIONS=NetTyan \
   BOT_ALIASES='пыхтун,арк' \
   OTHERS_NAMES='пончик,пон,pon4ik,pon4ikyt,nettyan,нетян,неттян' \
   AUTO_CREATIVE=true \
-  CREATIVE_COMMAND='/gamemode creative' \
   EXPLORE_AFTER=20s \
   IDLE_EVERY=60s \
   GIGACHAT_MODEL=GigaChat-2 \
