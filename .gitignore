@@ -1,0 +1,42 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.local.json
+secrets/
+
+# Models, audio, caches
+models/
+*.onnx
+*.bin
+*.safetensors
+*.wav
+*.ogg
+*.mp3
+hf/
+.cache/
+
+# Python bridge / services
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime data
+data/
+logs/
+*.log
+*.sqlite
+*.db
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
