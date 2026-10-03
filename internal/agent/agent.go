@@ -115,6 +115,9 @@ type Agent struct {
 	readSigns    map[string]bool
 	flyTarget    string // player named in "лети к ..."; empty means the speaker
 	followAfter  string // follow this player on foot once the flight lands
+	// lingerUntil: stay put (no companion follow) until then. A separate clock, because every
+	// line the other bots say refreshes lastCommand and used to cut the wait short.
+	lingerUntil  time.Time
 	fallSaves    bool
 	fallSavesSet bool
 
@@ -437,7 +440,7 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 	case ActStop:
 		cmd, a.following = "@stop", ""
 		// "Wait here with me": stay a full minute before drifting back to the companion.
-		a.lastCommand = time.Now().Add(time.Minute - a.cfg.ExploreAfter)
+		a.lingerUntil = time.Now().Add(time.Minute)
 	case ActDefend:
 		cmd = "@set mobDefense true"
 	case ActLead:

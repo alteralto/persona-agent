@@ -110,7 +110,7 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 	act := a.activity
 	if math.Hypot(pos.X-float64(act.x), pos.Z-float64(act.z)) < 4.5 {
 		a.activity = nil
-		a.lastCommand = time.Now() // linger a little before drifting back to the companion
+		a.lingerUntil = time.Now().Add(20 * time.Second) // a moment at the spot before drifting back
 		switch act.kind {
 		case "sign":
 			a.places.Add(explore.Place{Desc: "табличка «" + act.label + "»", X: act.x, Z: act.z, Seen: time.Now()})

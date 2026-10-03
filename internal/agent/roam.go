@@ -154,7 +154,7 @@ func (a *Agent) roam(ctx context.Context) {
 		return
 	}
 	if len(a.cfg.Companions) > 0 {
-		if a.following != "" {
+		if a.following != "" || time.Now().Before(a.lingerUntil) {
 			return
 		}
 		if time.Since(a.lastCommand) >= a.cfg.ExploreAfter {
