@@ -79,7 +79,7 @@ func (a *Agent) checkOuting(ctx context.Context, pos explore.Pos) {
 	if math.Hypot(pos.X-float64(o.place.X), pos.Z-float64(o.place.Z)) < 5 {
 		a.log.Info("outing: arrived", "at", o.place.Desc)
 		a.outing = nil
-		a.lingerUntil = time.Now().Add(outingLinger) // stay at the place a while before following again
+		a.lingerFor(outingLinger) // stay at the place a while before following again
 		return
 	}
 	limit := outingTimeout

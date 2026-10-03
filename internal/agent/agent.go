@@ -440,7 +440,7 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 	case ActStop:
 		cmd, a.following = "@stop", ""
 		// "Wait here with me": stay a full minute before drifting back to the companion.
-		a.lingerUntil = time.Now().Add(time.Minute)
+		a.lingerFor(time.Minute)
 	case ActDefend:
 		cmd = "@set mobDefense true"
 	case ActLead:
@@ -597,6 +597,13 @@ func mentions(text string, names []string) bool {
 		}
 	}
 	return false
+}
+
+// lingerFor keeps the bot in place for at least d; a shorter wait never cuts a longer one.
+func (a *Agent) lingerFor(d time.Duration) {
+	if until := time.Now().Add(d); until.After(a.lingerUntil) {
+		a.lingerUntil = until
+	}
 }
 
 func round(f float64) float64 { return float64(int(f*1000)) / 1000 }
