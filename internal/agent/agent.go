@@ -113,6 +113,8 @@ type Agent struct {
 	lastActivity time.Time
 	lastRequest  time.Time // last time a player asked for an action
 	readSigns    map[string]bool
+	flyTarget    string // player named in "лети к ..."; empty means the speaker
+	followAfter  string // follow this player on foot once the flight lands
 	fallSaves    bool
 	fallSavesSet bool
 
@@ -305,6 +307,10 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		"laya_ms", time.Since(start).Milliseconds())
 
 	a.journal.record(msg.Nick, source, msg.Text, answers, d, byRule, fromBot)
+	a.flyTarget = ""
+	if d.Action == ActFlyTo {
+		a.flyTarget = flyTargetWord(msg.Text)
+	}
 	if d.Action != ActWait {
 		a.lastRequest = time.Now()
 		a.activity = nil // a request beats the bot's own plans
@@ -409,7 +415,25 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		if a.following == nick {
 			return
 		}
+		// Far away in creative: fly there first, then follow on foot.
+		if a.creative && a.fork {
+			if _, x, z, d, ok := a.playerPos(ctx, nick); ok && d > a.flyAbove() && a.startFlight(ctx, int(x), int(z)) {
+				a.followAfter = nick
+				return
+			}
+		}
 		cmd, a.following = "@follow "+nick, nick
+	case ActFlyTo:
+		target := a.flyTarget
+		if target == "" {
+			target = nick
+		}
+		a.trip, a.following, a.activity = nil, "", nil
+		if !a.flyToPlayer(ctx, target) && target == nick {
+			cmd, a.following = "@follow "+nick, nick // cannot fly (survival, no kit): walk instead
+			break
+		}
+		return
 	case ActStop:
 		cmd, a.following = "@stop", ""
 		// "Wait here with me": stay a full minute before drifting back to the companion.

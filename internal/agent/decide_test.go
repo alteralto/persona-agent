@@ -165,3 +165,23 @@ func TestMentions(t *testing.T) {
 		}
 	}
 }
+
+func TestFlyToRule(t *testing.T) {
+	for text, target := range map[string]string{
+		"Пыхтун, прилетай ко мне": "",
+		"лети к нам скорее":       "",
+		"Пыхтун, лети к Нетян":    "Нетян",
+		"лети к NetTyan!":         "NetTyan",
+	} {
+		d, ok := applyRules(Decision{Action: ActWait}, text)
+		if !ok || d.Action != ActFlyTo {
+			t.Errorf("%q: got %s", text, d.Action)
+		}
+		if got := flyTargetWord(text); got != target {
+			t.Errorf("%q: target %q, want %q", text, got, target)
+		}
+	}
+	if d, _ := applyRules(Decision{Action: ActWait}, "Пыхтун, полетели!"); d.Action != ActFly {
+		t.Errorf("plain flight must stay fly, got %s", d.Action)
+	}
+}

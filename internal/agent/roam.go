@@ -126,7 +126,14 @@ func (a *Agent) roam(ctx context.Context) {
 		if a.checkFlight(ctx) {
 			return
 		}
-		if x, z, ok := a.walkTarget(); ok { // landed near the target: walk the last metres
+		if a.followAfter != "" { // flew to a player: now keep up with them on foot
+			nick := a.followAfter
+			a.followAfter = ""
+			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@follow " + nick}); err != nil {
+				a.log.Warn("after flight follow", "err", err)
+			}
+			a.following = nick
+		} else if x, z, ok := a.walkTarget(); ok { // landed near the target: walk the last metres
 			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
 				a.log.Warn("after flight goto", "err", err)
 			}

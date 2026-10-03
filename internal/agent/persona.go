@@ -41,6 +41,7 @@ var actionNotes = map[string]string{
 	ActSupply: "ты пошёл добывать бумагу и порох для ракет",
 	ActLead:   "ты идёшь к своей норе и ведёшь игрока за собой",
 	ActFly:    "ты надеваешь элитры и взлетаешь на ракетах — сам боишься высоты, но летишь",
+	ActFlyTo:  "ты летишь на элитрах к игроку, о котором речь",
 }
 
 func replyMessages(history []string, nick, text, action, places string) []giga.Message {

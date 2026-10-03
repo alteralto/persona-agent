@@ -19,7 +19,8 @@ const (
 	ActDefend = "defend"
 	ActSupply = "supply"
 	ActLead   = "lead"
-	ActFly    = "fly" // rule-only: not offered to Laya, keeps her option list short
+	ActFly    = "fly"   // rule-only: not offered to Laya, keeps her option list short
+	ActFlyTo  = "flyto" // rule-only: fly to a player
 )
 
 const (
@@ -168,6 +169,7 @@ var leadRule = regexp.MustCompile(`(?i)(веди|проводи|отведи|п�
 // verbs; everything else is Laya's call. Go's  is ASCII-only, so words are matched as
 // substrings with care.
 var (
+	flyToRule  = regexp.MustCompile(`(?i)(прилет(ай|и)|лети\s+(ко мне|к нам|сюда|к\s+[^\s,.!?]+))`)
 	flyRule    = regexp.MustCompile(`(?i)(полетели|полетаем|взлетай|взлетаем|летим|на элитрах)`)
 	supplyRule = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
 	defendRule = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
@@ -182,6 +184,7 @@ func applyRules(d Decision, text string) (Decision, bool) {
 		action string
 	}{
 		{supplyRule, ActSupply},
+		{flyToRule, ActFlyTo},
 		{flyRule, ActFly},
 		{defendRule, ActDefend},
 		{stopRule, ActStop},
@@ -235,4 +238,17 @@ func DecideWith(a map[string]laya.Answer, mode string, minProb float64) Decision
 func ApplyRules(d Decision, text string) Decision {
 	d, _ = applyRules(d, text)
 	return d
+}
+
+// flyTargetWord returns the name after "лети к" ("лети к нетян" → "нетян"), or "" for
+// "ко мне", "к нам", "сюда" and "прилетай", which mean the speaker.
+func flyTargetWord(text string) string {
+	m := regexp.MustCompile(`(?i)лети\s+к\s+([^\s,.!?]+)`).FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	if w := strings.ToLower(m[1]); w == "мне" || w == "нам" {
+		return ""
+	}
+	return m[1]
 }

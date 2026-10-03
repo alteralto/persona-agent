@@ -230,3 +230,52 @@ func placeLabel(signs []sign, f explore.Finding) (string, bool) {
 	}
 	return desc, ok
 }
+
+// playerPos finds a player the client can see (render distance) by nick or by the name
+// players use for them ("нетян" → NetTyan). ok=false when they are out of sight.
+func (a *Agent) playerPos(ctx context.Context, name string) (nick string, x, z, dist float64, ok bool) {
+	text, err := a.mc.Call(ctx, "getGameState", nil)
+	if err != nil {
+		return "", 0, 0, 0, false
+	}
+	var st struct {
+		Players []struct {
+			Name     string `json:"name"`
+			Pos      string `json:"pos"`
+			Distance string `json:"distance"`
+		} `json:"players"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil {
+		return "", 0, 0, 0, false
+	}
+	want := strings.ToLower(name)
+	for _, p := range st.Players {
+		if strings.ToLower(p.Name) != want && strings.ToLower(spokenName(p.Name)) != want &&
+			!strings.HasPrefix(strings.ToLower(p.Name), want) {
+			continue
+		}
+		pos, err := explore.ParsePos(p.Pos)
+		if err != nil {
+			return "", 0, 0, 0, false
+		}
+		var d float64
+		fmt.Sscanf(p.Distance, "%g", &d)
+		return p.Name, pos.X, pos.Z, d, true
+	}
+	return "", 0, 0, 0, false
+}
+
+// flyToPlayer takes off towards a player and follows them on foot after landing.
+func (a *Agent) flyToPlayer(ctx context.Context, name string) bool {
+	nick, x, z, _, ok := a.playerPos(ctx, name)
+	if !ok {
+		a.log.Info("fly to player: not in sight", "name", name)
+		return false
+	}
+	if !a.startFlight(ctx, int(x), int(z)) {
+		return false
+	}
+	a.followAfter = nick
+	a.log.Info("flight: to player", "nick", nick, "x", int(x), "z", int(z))
+	return true
+}
