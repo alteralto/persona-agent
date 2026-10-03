@@ -40,3 +40,7 @@ logs/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Local voice env and listening samples
+.venv-voice/
+samples/

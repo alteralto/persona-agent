@@ -1,0 +1,246 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"math/rand/v2"
+	"time"
+
+	"github.com/alteralto/persona-agent/internal/explore"
+)
+
+// trip is one walk to an unvisited chunk.
+type trip struct {
+	target   explore.Chunk
+	started  time.Time
+	lastPos  explore.Pos
+	lastMove time.Time
+}
+
+const (
+	tripTimeout = 90 * time.Second
+	stuckAfter  = 15 * time.Second
+	arriveDist  = 6.0
+)
+
+// position reads the bot's coordinates from pathStatus, and whether it is walking somewhere.
+func (a *Agent) position(ctx context.Context) (explore.Pos, bool, error) {
+	text, err := a.mc.Call(ctx, "pathStatus", nil)
+	if err != nil {
+		return explore.Pos{}, false, err
+	}
+	var st struct {
+		Pos  string `json:"pos"`
+		Busy bool   `json:"busy"`
+	}
+	if err := json.Unmarshal([]byte(text), &st); err != nil {
+		return explore.Pos{}, false, err
+	}
+	pos, err := explore.ParsePos(st.Pos)
+	return pos, st.Busy, err
+}
+
+const stuckFor = 10 * time.Second
+
+// checkStuck notices a walk that makes no progress: busy, yet the bot has not moved.
+// It stops the walk and hops a few blocks aside, out of the corner or pit.
+func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool {
+	// Following keeps the mod "busy" even while standing next to the target, so only walks to
+	// a point (exploration, outing, leading home) are checked.
+	walkingToPoint := a.trip != nil || a.outing != nil || a.leading
+	if !busy || !walkingToPoint || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1 {
+		a.stillPos, a.stillSince = pos, time.Now()
+		return false
+	}
+	if time.Since(a.stillSince) < stuckFor {
+		return false
+	}
+	angle := rand.Float64() * 2 * math.Pi
+	dist := 6 + rand.Float64()*4
+	x, z := int(pos.X+dist*math.Cos(angle)), int(pos.Z+dist*math.Sin(angle))
+	a.log.Info("stuck: hopping aside", "x", int(pos.X), "z", int(pos.Z), "to_x", x, "to_z", z)
+	a.outing, a.trip, a.following, a.leading = nil, nil, "", false
+	for _, cmd := range []string{"@stop", fmt.Sprintf("@goto %d %d", x, z)} {
+		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err != nil {
+			a.log.Warn("unstick", "cmd", cmd, "err", err)
+		}
+	}
+	a.stillPos, a.stillSince = pos, time.Now()
+	return true
+}
+
+// roam advances exploration by one step. It only runs while nobody needs the bot:
+// not following anyone and no mention for ExploreAfter.
+func (a *Agent) roam(ctx context.Context) {
+	pos, busy, err := a.position(ctx)
+	if err != nil {
+		a.log.Warn("position", "err", err)
+		return
+	}
+	a.pos, a.havePos = pos, true
+	if a.leading && a.places.Home != nil && math.Hypot(pos.X-a.places.Home.X, pos.Z-a.places.Home.Z) < 5 {
+		a.leading = false // brought them home
+	}
+	if a.checkStuck(ctx, pos, busy) {
+		return
+	}
+	if a.places.Home == nil {
+		home := pos
+		a.places.Home = &home
+		a.savePlaces()
+		a.log.Info("home set", "x", int(pos.X), "z", int(pos.Z))
+	}
+	if !a.protected && a.cfg.ProtectRadius > 0 {
+		a.protectBuilds(ctx)
+	}
+	if time.Since(a.modeChecked) > 30*time.Second {
+		a.modeChecked = time.Now()
+		a.refreshGameMode(ctx)
+	}
+	if a.flying {
+		if a.checkFlight(ctx) {
+			return
+		}
+		if a.outing != nil { // landed near the place: walk the last metres
+			p := a.outing.place
+			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", p.X, p.Z)}); err != nil {
+				a.log.Warn("after flight goto", "err", err)
+			}
+		}
+	}
+	if a.outing != nil {
+		a.checkOuting(ctx, pos)
+		return
+	}
+	if a.following != "" {
+		return
+	}
+	if len(a.cfg.Companions) > 0 {
+		if time.Since(a.lastCommand) >= a.cfg.ExploreAfter {
+			if a.trip != nil {
+				a.cancelTrip(ctx)
+			}
+			a.log.Info("companion: staying close", "nick", a.cfg.Companions[0])
+			a.act(ctx, ActFollow, a.cfg.Companions[0])
+		}
+		return
+	}
+	if !a.cfg.Explore {
+		return
+	}
+
+	if a.trip == nil {
+		if time.Since(a.lastCommand) < a.cfg.ExploreAfter {
+			return
+		}
+		home := explore.ChunkOf(*a.places.Home)
+		next, ok := explore.Next(home, explore.ChunkOf(pos), a.cfg.ExploreRadius, a.places.VisitedSet())
+		if !ok {
+			return // whole area explored
+		}
+		x, z := next.Center()
+		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
+			a.log.Warn("explore goto", "err", err)
+			return
+		}
+		now := time.Now()
+		a.trip = &trip{target: next, started: now, lastPos: pos, lastMove: now}
+		a.log.Info("explore: walking", "x", x, "z", z)
+		return
+	}
+
+	t := a.trip
+	x, z := t.target.Center()
+	if math.Hypot(pos.X-float64(x), pos.Z-float64(z)) < arriveDist {
+		a.survey(ctx, pos, t.target)
+		a.trip = nil
+		return
+	}
+	if math.Hypot(pos.X-t.lastPos.X, pos.Z-t.lastPos.Z) > 1 {
+		t.lastPos, t.lastMove = pos, time.Now()
+	}
+	if time.Since(t.lastMove) > stuckAfter || time.Since(t.started) > tripTimeout {
+		a.log.Info("explore: giving up on chunk", "x", x, "z", z)
+		a.places.MarkVisited(t.target) // unreachable for now; do not retry forever
+		a.savePlaces()
+		a.cancelTrip(ctx)
+	}
+}
+
+// protectHome marks the area around home as no-break/no-place for the pathfinder. The zone
+// lives in the client and is lost when the game restarts, so it is set on every start.
+func (a *Agent) protectHome(ctx context.Context) {
+	h := *a.places.Home
+	// Zones accumulate across agent restarts while the game keeps running; start clean.
+	if _, err := a.mc.Call(ctx, "clearProtectedAreas", nil); err != nil {
+		a.log.Warn("clear protected areas", "err", err)
+	}
+	out, err := a.mc.Call(ctx, "markProtectedArea", map[string]any{
+		"x": int(h.X), "y": int(h.Y), "z": int(h.Z), "r": a.cfg.ProtectRadius})
+	if err != nil {
+		a.log.Warn("protect area", "err", err)
+		return
+	}
+	a.protected = true
+	a.log.Info("protected area set", "result", out)
+}
+
+// survey looks at the surface around the bot and remembers anything notable.
+func (a *Agent) survey(ctx context.Context, pos explore.Pos, target explore.Chunk) {
+	a.places.MarkVisited(target)
+	a.places.MarkVisited(explore.ChunkOf(pos))
+	defer a.savePlaces()
+	raw, err := a.mc.Call(ctx, "getSurfaceMap", map[string]any{"radius": 6})
+	if err != nil {
+		a.log.Warn("survey", "err", err)
+		return
+	}
+	f, err := explore.Summarize(raw)
+	if err != nil {
+		a.log.Warn("survey parse", "err", err)
+		return
+	}
+	desc, ok := placeLabel(a.signsNear(ctx, 12), f)
+	a.log.Info("explore: surveyed", "x", int(pos.X), "z", int(pos.Z), "built", f.Built, "water", f.Water, "landmark", desc)
+	if !ok || !a.places.Add(explore.Place{Desc: desc, X: int(pos.X), Z: int(pos.Z), Seen: time.Now()}) {
+		return
+	}
+	// Remember every find, but announce at most one per two minutes: on a busy server a walk
+	// through a village would otherwise flood the chat.
+	if time.Since(time.Unix(0, a.lastSpoke.Load())) < 2*time.Minute {
+		return
+	}
+	a.lastSpoke.Store(time.Now().UnixNano())
+	dir := explore.Direction(*a.places.Home, pos.X, pos.Z)
+	a.enqueue(replyJob{
+		prompt: fmt.Sprintf("Ты, гуляя, нашёл: %s, на x=%d z=%d, это на %s от твоей норы. "+
+			"Коротко расскажи об этом в чат, в характере.", desc, int(pos.X), int(pos.Z), dir),
+		at: time.Now(),
+	})
+}
+
+func (a *Agent) cancelTrip(ctx context.Context) {
+	a.trip = nil
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+		a.log.Warn("explore stop", "err", err)
+	}
+}
+
+func (a *Agent) savePlaces() {
+	if err := a.places.Save(); err != nil {
+		a.log.Warn("save places", "err", err)
+	}
+}
+
+// placesNote is what the reply prompt gets about known places.
+func (a *Agent) placesNote() string {
+	if !a.havePos || a.places.Home == nil {
+		return ""
+	}
+	h := *a.places.Home
+	note := fmt.Sprintf("- твоя нора (вход): x=%d y=%d z=%d, %d блоков на %s\n", int(h.X), int(h.Y), int(h.Z),
+		int(math.Hypot(h.X-a.pos.X, h.Z-a.pos.Z)), explore.Direction(a.pos, h.X, h.Z))
+	return note + a.places.Describe(a.pos, 5)
+}
