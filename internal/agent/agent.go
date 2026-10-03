@@ -49,6 +49,9 @@ type Config struct {
 	JournalPath string
 	// PeopleDir: one memory file per person the bot talks to (empty: off).
 	PeopleDir string
+	// AutoCreative: on this server the bot asks for creative mode with CreativeCommand.
+	AutoCreative    bool
+	CreativeCommand string
 	// OthersNames: how players call the other bots ("пончик", "nettyan"). A bot line that
 	// opens with one of these is addressed to someone else, and the bot keeps quiet.
 	OthersNames []string
@@ -101,6 +104,10 @@ type Agent struct {
 
 	journal *journal
 	people  *memory.Store
+
+	creativeAsked time.Time
+	fallSaves     bool
+	fallSavesSet  bool
 
 	speaker *voice.Speaker   // nil: text chat only
 	heard   chan voice.Heard // recognized player speech

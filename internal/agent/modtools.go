@@ -57,6 +57,37 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 		a.log.Info("game mode", "mode", st.Self.GameMode)
 	}
 	a.creative, a.modeKnown = creative, true
+
+	// On our own server the bot plays in creative: ask for it when the server put us in survival.
+	if a.cfg.AutoCreative && st.Self.GameMode == "survival" && time.Since(a.creativeAsked) > time.Minute {
+		a.creativeAsked = time.Now()
+		if _, err := a.mc.Call(ctx, "ChatMessage", map[string]any{"msg": a.cfg.CreativeCommand}); err != nil {
+			a.log.Warn("creative command", "err", err)
+		} else {
+			a.log.Info("asked for creative", "cmd", a.cfg.CreativeCommand)
+		}
+	}
+	a.applyFallSaves(ctx)
+}
+
+// applyFallSaves sets the mod's fall rescue (water bucket, ender pearl toward the nearest
+// player, blocks under the feet): useful in survival, pointless in creative, and harmful in
+// flight, where a glide down looks like a fall and the bot throws pearls mid-air.
+func (a *Agent) applyFallSaves(ctx context.Context) {
+	if !a.modeKnown {
+		return // upstream mod: mode unknown, leave the setting as it is
+	}
+	want := !a.creative && !a.flying
+	if a.fallSavesSet && a.fallSaves == want {
+		return
+	}
+	cmd := fmt.Sprintf("@set autoMLGBucket %t", want)
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err != nil {
+		a.log.Warn("fall saves", "err", err)
+		return
+	}
+	a.fallSaves, a.fallSavesSet = want, true
+	a.log.Info("fall saves", "on", want)
 }
 
 type sign struct {
@@ -131,12 +162,16 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("flight stop walk", "err", err)
 	}
+	a.flying = true // fall saves off before take-off: a glide must not trigger pearl throws
+	a.applyFallSaves(ctx)
 	if _, err := a.mc.Call(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}); err != nil {
 		if unknownTool(err) {
 			a.noFlight = true // upstream mod: never try again this run
 		} else {
 			a.log.Warn("fly", "err", err)
 		}
+		a.flying = false
+		a.applyFallSaves(ctx)
 		return false
 	}
 	a.flying, a.flightStarted = true, time.Now()
@@ -163,6 +198,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 	switch st.Phase {
 	case "done", "failed", "idle":
 		a.flying = false
+		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
 		if st.Phase == "failed" && (st.Reason == "no elytra" || st.Reason == "no fireworks") && !a.creative {
