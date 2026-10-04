@@ -27,8 +27,8 @@ const (
 // from the activity scheduler alone, so two timers never send the bot two ways at once. While an
 // outing, activity or flight is under way the bot already speaks about it.
 func (a *Agent) idleTurn(ctx context.Context) {
-	if a.outing != nil || a.activity != nil || a.flying {
-		return
+	if a.outing != nil || a.activity != nil || a.flying || !a.havePos {
+		return // nobody to talk to in the main menu
 	}
 	a.enqueue(replyJob{prompt: a.idlePrompt(), history: slices.Clone(a.history), at: time.Now()})
 }

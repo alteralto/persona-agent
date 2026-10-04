@@ -104,6 +104,7 @@ type Agent struct {
 	noTidy          bool
 	botsNear        []string
 	botsKnown       bool
+	outOfWorld      bool
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time

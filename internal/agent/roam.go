@@ -99,8 +99,18 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 func (a *Agent) roam(ctx context.Context) {
 	pos, busy, err := a.position(ctx)
 	if err != nil {
-		a.log.Warn("position", "err", err)
+		// In the main menu the mod answers with an empty position: say so once.
+		if !a.outOfWorld {
+			a.outOfWorld = true
+			a.log.Info("not in a world yet", "err", err)
+		}
+		a.havePos = false
 		return
+	}
+	if a.outOfWorld {
+		a.outOfWorld = false
+		a.log.Info("in a world")
+		a.resetModState() // a new world or server: policy, mode and the flight kit again
 	}
 	a.pos, a.havePos = pos, true
 	if a.leading && a.places.Home != nil && math.Hypot(pos.X-a.places.Home.X, pos.Z-a.places.Home.Z) < 5 {

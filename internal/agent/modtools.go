@@ -85,10 +85,12 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 	a.tidyInventory(ctx)
 }
 
-// nearbyBots are the other bots in sight; with the upstream mod (no player list) all of them.
+// nearbyBots are the other bots in sight. Until the player list has been read (just after
+// start or a game restart, or with the upstream mod) nobody: better silent than talking to an
+// absent bot.
 func (a *Agent) nearbyBots() []string {
 	if !a.botsKnown {
-		return a.cfg.OtherBots
+		return nil
 	}
 	return a.botsNear
 }
