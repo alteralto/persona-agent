@@ -8,6 +8,8 @@ log="logs/nightly-$(date +%F).txt"
   ./bin/benchmine.exe
   echo "== $(date '+%F %T') layatune"
   ./bin/layatune.exe -rounds 3 | grep -v '^   want'
+  echo "== $(date '+%F %T') simulated scene (real GigaChat + Laya)"
+  ./bin/simrun.exe -llm real -laya http://127.0.0.1:8090 -for 2m -out "logs/simrun-$(date +%F).txt" | grep '^quality:'
   echo "== done; restart the agent to pick up data/laya_criteria.json if it changed"
 } >> "$log" 2>&1
 echo "report: $log"

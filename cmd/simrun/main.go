@@ -144,12 +144,17 @@ func main() {
 			sink = io.MultiWriter(os.Stdout, f)
 		}
 	}
+	var said []string
 	for _, e := range w.Events() {
+		if e.Kind == "say" {
+			said = append(said, e.Text)
+		}
 		if e.Kind == "tool" && !strings.HasPrefix(e.Text, "creativeGive") && !strings.HasPrefix(e.Text, "tidy") {
 			continue
 		}
 		fmt.Fprintf(sink, "%6.1fs %-4s %s\n", e.At.Seconds(), e.Kind, e.Text)
 	}
+	fmt.Fprintf(sink, "\nquality: %s\n", agent.ReplyQuality(said))
 	// Decisions from the agent log, for checking Laya and the rules.
 	logFile.Close()
 	if raw, err := os.ReadFile(filepath.Join(tmp, "agent.log")); err == nil {

@@ -67,17 +67,40 @@ First runs on 63 lines from a live session: Laya alone 66 % → with keyword rul
 tuned threshold 84 % on the test half (the rules were written having seen the whole bench, so
 this is optimistic until new lines come in).
 
+4. `cmd/simrun` plays a scripted scene with the real GigaChat and Laya against the simulated game
+   and prints reply quality (length, repeats, gendered address) next to the timeline.
+
+## Testing without the game
+
+`internal/sim` stands in for the mod: the same MCP tools and JSON shapes (chat, `pathStatus`,
+`getGameState`, `ExecuteCommand`, signs, creative items, elytra flights, inventory), plus fake
+Laya and GigaChat servers. `internal/agent/sim_test.go` runs the real agent against it — follow,
+fly to a player, stop mid-flight, game restart, full inventory, signs, upstream-mod fallbacks —
+in about 15 seconds:
+
+```bash
+go test ./...
+go run ./cmd/simrun                                              # fake models, instant
+go run ./cmd/simrun -llm real -laya http://127.0.0.1:8090 -for 2m  # real replies and decisions
+```
+
+The first real-model scene found six bugs in an evening that live play had not shown (an
+invented answer to "where is the farm" with the sign 50 blocks away, small talk about creepers
+switching on combat, a flight show right after "stay here", and more).
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `cmd/agent` | the agent |
 | `cmd/probe`, `cmd/layatune`, `cmd/benchmine`, `cmd/llmbench` | decision probe, tuning, bench mining, LLM model comparison |
+| `cmd/simrun`, `internal/sim` | scripted scene against the simulated game |
 | `internal/agent` | decision loop, rules, critic, exploration, outings, fork tools |
 | `internal/{laya,giga,mcp,voice,chatlog,explore,memory}` | clients and building blocks |
 | `voice/service.py` | Py4J voice feed, Whisper STT, Piper TTS to the virtual cable |
 | `bench/` | hand-labelled decision bench |
-| `scripts/run-agent.sh`, `scripts/nightly.sh` | start the agent; nightly tuning |
+| `scripts/start-all.ps1`, `scripts/stop-all.ps1` | start/stop Laya, voice and the agent |
+| `scripts/run-agent.sh`, `scripts/nightly.sh` | agent settings; nightly tuning |
 
 Runtime data (`data/`, `logs/`, models, `.env`) is not committed.
 
