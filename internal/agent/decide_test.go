@@ -185,3 +185,16 @@ func TestFlyToRule(t *testing.T) {
 		t.Errorf("plain flight must stay fly, got %s", d.Action)
 	}
 }
+
+func TestDefendNotOnSmallTalk(t *testing.T) {
+	for _, text := range []string{"Пыхтун, а ты боишься криперов?", "расскажи про зомби", "какие мобы тебе нравятся"} {
+		if d, _ := applyRules(Decision{Action: ActWait}, text); d.Action == ActDefend {
+			t.Errorf("%q: small talk about mobs turned on defence", text)
+		}
+	}
+	for _, text := range []string{"крипер рядом!", "зомби напали", "Пыхтун, помоги, скелеты", "осторожно, паук"} {
+		if d, ok := applyRules(Decision{Action: ActWait}, text); !ok || d.Action != ActDefend {
+			t.Errorf("%q: want defend, got %s", text, d.Action)
+		}
+	}
+}

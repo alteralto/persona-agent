@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -355,8 +356,12 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		}
 	}
 	if d.Reply {
+		places := a.placesNote()
+		if asksWhere(msg.Text) {
+			places += a.signsNote(ctx)
+		}
 		a.enqueue(replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: msg.Text, action: d.Action,
-			places: a.placesNote(), creative: a.creative, at: start})
+			places: places, creative: a.creative, at: start})
 	}
 
 	a.remember(msg)
@@ -459,7 +464,14 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		}
 		return
 	case ActStop:
-		cmd, a.following = "@stop", ""
+		cmd, a.following, a.followAfter = "@stop", "", ""
+		// @stop halts walking only; the elytra controller flies on until told. The bot glides
+		// down where it is, and checkFlight notices the flight has ended.
+		if a.flying {
+			if _, err := a.mc.Call(ctx, "flyStop", nil); err != nil {
+				a.log.Warn("fly stop", "err", err)
+			}
+		}
 		// "Wait here with me": stay a full minute before drifting back to the companion.
 		a.lingerFor(time.Minute)
 	case ActDefend:
@@ -469,7 +481,12 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 			return
 		}
 		a.trip, a.following, a.leading = nil, "", true
-		cmd = fmt.Sprintf("@goto %d %d", int(a.places.Home.X), int(a.places.Home.Z))
+		hx, hz := int(a.places.Home.X), int(a.places.Home.Z)
+		// Hundreds of blocks from home in creative: fly, then walk the last metres (roam does it).
+		if a.havePos && a.creative && math.Hypot(a.pos.X-float64(hx), a.pos.Z-float64(hz)) > 100 && a.startFlight(ctx, hx, hz) {
+			return
+		}
+		cmd = fmt.Sprintf("@goto %d %d", hx, hz)
 	case ActSupply:
 		a.following = ""
 		switch {
@@ -487,6 +504,10 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		}
 	case ActFly:
 		a.trip, a.following = nil, ""
+		// "Полетели вместе" from someone far away: fly to them, not off somewhere else.
+		if _, _, _, d, ok := a.playerPos(ctx, nick); ok && d > a.flyAbove() && a.flyToPlayer(ctx, nick) {
+			return
+		}
 		if !a.flyShowOff(ctx) {
 			a.log.Info("fly skipped: no flight available")
 		}
@@ -514,7 +535,11 @@ func (a *Agent) replyWorker(ctx context.Context) {
 		if job.prompt != "" {
 			note = freeMessages(job.history, job.prompt)
 		} else {
-			note = replyMessages(job.history, job.nick, job.text, action, job.places)
+			noteKey := action
+			if action == ActSupply && job.creative && a.fork {
+				noteKey = noteSupplyCreative
+			}
+			note = replyMessages(job.history, job.nick, job.text, noteKey, job.places)
 		}
 		// What the bot remembers about this person goes first: notes and recent exchanges.
 		if a.people != nil && job.nick != "" {

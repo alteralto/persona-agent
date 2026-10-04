@@ -122,7 +122,8 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 	if !a.havePos {
 		return false
 	}
-	x, z := int(a.pos.X)+80, int(a.pos.Z)
+	angle := rand.Float64() * 2 * math.Pi // no remembered place far enough: any direction
+	x, z := int(a.pos.X+80*math.Cos(angle)), int(a.pos.Z+80*math.Sin(angle))
 	if a.places != nil {
 		var far []explore.Place
 		for _, p := range a.places.List {

@@ -114,8 +114,10 @@ func (r *run) waitFor(what string, d time.Duration, cond func() bool) {
 
 func (r *run) ready() {
 	r.t.Helper()
-	r.waitFor("build policy", 3*time.Second, func() bool { return r.w.Has("tool", "setBuildPolicy") ||
-		r.w.Has("tool", "markProtectedArea") })
+	r.waitFor("build policy", 3*time.Second, func() bool {
+		return r.w.Has("tool", "setBuildPolicy") ||
+			r.w.Has("tool", "markProtectedArea")
+	})
 }
 
 func TestSimFollowOnFoot(t *testing.T) {
@@ -257,4 +259,57 @@ func TestSimReadsSignOnItsOwn(t *testing.T) {
 		}
 		return false
 	})
+}
+
+func TestSimWhereUsesSigns(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 5, 0)
+	r.w.AddSign(40, 70, 30, "Тыквенная ферма")
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, где тут тыквенная ферма?")
+	r.waitFor("prompt with the sign", 3*time.Second, func() bool {
+		for _, p := range r.giga.Calls() {
+			if strings.Contains(p, "табличка «Тыквенная ферма»") && strings.Contains(p, "блоков на") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestSimStopHoldsAgainstActivity(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+		c.ActivityEvery = 50 * time.Millisecond
+	})
+	r.w.AddPlayer("Alex", 3, 0)
+	r.w.AddSign(30, 70, 0, "Мост")
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, стой тут")
+	r.waitFor("@stop", 3*time.Second, func() bool { return r.w.Has("cmd", "@stop") })
+	// lastRequest holds activities for 30 s anyway; the linger must hold them too, so check
+	// the bot is still where it stopped.
+	time.Sleep(700 * time.Millisecond)
+	if x, z := r.w.Bot(); x*x+z*z > 4 {
+		t.Errorf("moved to %.0f,%.0f after «стой тут»", x, z)
+	}
+}
+
+func TestSimFlyTogetherGoesToSpeaker(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Pon4ikYT", -200, 50)
+	r.ready()
+	r.w.Say("Pon4ikYT", "Пыхтун, полетели вместе!")
+	r.waitFor("flight to the speaker", 3*time.Second, func() bool { return r.w.Has("fly", "-200 50") })
+	r.waitFor("next to the speaker", 5*time.Second, func() bool { return r.w.DistanceTo("Pon4ikYT") < 3 })
+}
+
+func TestSimLeadHomeFliesWhenFar(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 300, 0)
+	r.ready() // home is set where the bot starts: 0,0
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("near Alex", 5*time.Second, func() bool { return r.w.DistanceTo("Alex") < 3 })
+	r.w.Say("Alex", "Пыхтун, отведи меня к норе")
+	r.waitFor("flight home", 3*time.Second, func() bool { return r.w.Has("fly", "0 0") })
+	r.waitFor("home", 5*time.Second, func() bool { x, z := r.w.Bot(); return x*x+z*z < 25 })
 }

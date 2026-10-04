@@ -175,6 +175,9 @@ var (
 	defendRule = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
 	stopRule   = regexp.MustCompile(`(?i)(^|пыхтун[,! ]+)(стой|замри|подожди|постой)|подожд(и|ёте|ете) (меня|со мной)`)
 	followRule = regexp.MustCompile(`(?i)(подойди|вернись|иди ко мне|иди сюда|пошли со мной|пойд[её]м со мной|за мной)`)
+	// talkAboutMobs: "ты боишься криперов?" names a mob but is small talk, not an alarm.
+	talkAboutMobs = regexp.MustCompile(`(?i)(бои(шь|т)ся|бояться|любишь|нравя?тся|видел|расскажи|про\s|какие|сколько)`)
+	urgentMobs    = regexp.MustCompile(`(?i)(рядом|сзади|тут|здесь|ид[уё]т|напал|помоги|защищ|спаса|осторожн|берегись)`)
 )
 
 // applyRules overrides Laya when the request is unambiguous, in order of specificity.
@@ -192,6 +195,9 @@ func applyRules(d Decision, text string) (Decision, bool) {
 		{leadRule, ActLead},
 	} {
 		if r.re.MatchString(text) {
+			if r.action == ActDefend && talkAboutMobs.MatchString(text) && !urgentMobs.MatchString(text) {
+				continue
+			}
 			d.Action, d.Agreed = r.action, true
 			return d, true
 		}

@@ -245,6 +245,35 @@ func (a *Agent) supplyCreative(ctx context.Context, nick string) string {
 	return fmt.Sprintf("@give %s firework_rocket 16", nick)
 }
 
+// signsNote lists signs around the bot for a "where is ..." question, and remembers them as
+// places: a sign 50 blocks away answers "where is the pumpkin farm" better than a guess.
+func (a *Agent) signsNote(ctx context.Context) string {
+	if !a.fork || !a.havePos {
+		return ""
+	}
+	var b strings.Builder
+	added := false
+	for i, s := range a.signsNear(ctx, 64) {
+		text := signText(s)
+		x, z, ok := parseBlockPos(s.Pos)
+		if text == "" || !ok || i >= 8 {
+			continue
+		}
+		if r := []rune(text); len(r) > 60 {
+			text = string(r[:60])
+		}
+		fmt.Fprintf(&b, "- табличка «%s»: %d блоков на %s\n", text, int(s.Distance),
+			explore.Direction(a.pos, float64(x), float64(z)))
+		if a.places != nil && a.places.Add(explore.Place{Desc: "табличка «" + text + "»", X: x, Z: z, Seen: time.Now()}) {
+			added = true
+		}
+	}
+	if added {
+		a.savePlaces()
+	}
+	return b.String()
+}
+
 // placeLabel prefers a sign's text over the block-based description.
 func placeLabel(signs []sign, f explore.Finding) (string, bool) {
 	desc, ok := f.Landmark()

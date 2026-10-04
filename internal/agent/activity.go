@@ -28,7 +28,9 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	if a.cfg.ActivityEvery <= 0 || a.outing != nil || a.activity != nil || a.flying || a.trip != nil || !a.havePos {
 		return false
 	}
-	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Since(a.lastRequest) < 30*time.Second {
+	// "Стой тут" holds the bot for a minute: no flight shows in the meantime.
+	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Since(a.lastRequest) < 30*time.Second ||
+		time.Now().Before(a.lingerUntil) {
 		return false
 	}
 	a.lastActivity = time.Now()
