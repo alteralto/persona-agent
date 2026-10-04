@@ -313,3 +313,52 @@ func TestSimLeadHomeFliesWhenFar(t *testing.T) {
 	r.waitFor("flight home", 3*time.Second, func() bool { return r.w.Has("fly", "0 0") })
 	r.waitFor("home", 5*time.Second, func() bool { x, z := r.w.Bot(); return x*x+z*z < 25 })
 }
+
+func TestSimSurvivalFallSavesAndCraftedRockets(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.Creative = false })
+	r.w.AddPlayer("Alex", 6, 0)
+	r.ready()
+	r.waitFor("fall saves on", 3*time.Second, func() bool { return r.w.Has("cmd", "@set autoMLGBucket true") })
+	r.w.Say("Alex", "Пыхтун, принеси ракет")
+	r.waitFor("crafted rockets", 3*time.Second, func() bool { return r.w.Has("cmd", "@give Alex firework_rocket 3") })
+	if r.w.Has("tool", "creativeGive") {
+		t.Error("creativeGive in survival")
+	}
+}
+
+func TestSimSurvivalWithoutElytraWalks(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.Creative = false })
+	r.w.AddPlayer("Alex", 150, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("walks after a failed take-off", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
+	r.waitFor("next to Alex", 6*time.Second, func() bool { return r.w.DistanceTo("Alex") < 3 })
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	time.Sleep(300 * time.Millisecond)
+	if n := r.w.Count("tool", "flyTo"); n > 1 {
+		t.Errorf("tried to fly %d times without an elytra", n)
+	}
+}
+
+func TestSimSurvivalElytraFallSavesOffInFlight(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true, Elytra: true}, func(c *agent.Config) { c.Creative = false })
+	r.w.AddPlayer("Alex", 300, 0)
+	r.ready()
+	r.waitFor("fall saves on", 3*time.Second, func() bool { return r.w.Has("cmd", "@set autoMLGBucket true") })
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("take-off", 3*time.Second, func() bool { return r.w.Has("fly", "300 0") })
+	ev := r.w.Events()
+	off, fly := -1, -1
+	for i, e := range ev {
+		if e.Kind == "cmd" && e.Text == "@set autoMLGBucket false" && off < 0 {
+			off = i
+		}
+		if e.Kind == "fly" && fly < 0 {
+			fly = i
+		}
+	}
+	if off < 0 || off > fly {
+		t.Fatalf("fall saves must go off before take-off: off=%d fly=%d", off, fly)
+	}
+	r.waitFor("fall saves back on after landing", 5*time.Second, func() bool { return r.w.Count("cmd", "@set autoMLGBucket true") >= 2 })
+}
