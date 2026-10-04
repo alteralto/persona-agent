@@ -86,7 +86,6 @@ type Agent struct {
 	lastCommand time.Time
 
 	outing     *outing
-	idleTurns  int
 	protected  bool
 	ownLines   []string // last lines the bot said; touched only by replyWorker
 	lastTopic  int
@@ -101,6 +100,7 @@ type Agent struct {
 	fork          bool // setBuildPolicy worked: the fork's tools are there
 	flightKit     bool
 	noFlight      bool
+	noTidy        bool
 	flying        bool
 	flightStarted time.Time
 
@@ -195,9 +195,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		go a.summarizer(ctx)
 	}
 
+	// The agent may start before the game: wait for the mod instead of exiting.
 	prev, err := a.recentChat(ctx)
-	if err != nil {
-		return err
+	for waited := false; err != nil; prev, err = a.recentChat(ctx) {
+		if !waited {
+			waited = true
+			a.log.Info("waiting for the game", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(3 * time.Second):
+		}
 	}
 	a.log.Info("connected to game", "chat_lines", len(prev))
 	if a.cfg.Intro {
@@ -206,6 +215,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.lastSpoke.Store(time.Now().UnixNano())
 	var lastLine string
 	var lastAt time.Time
+	gameDown := false
 	tick := 0
 	t := time.NewTicker(a.cfg.PollEvery)
 	defer t.Stop()
@@ -221,7 +231,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		cur, err := a.recentChat(ctx)
 		if err != nil {
-			a.log.Warn("read chat", "err", err)
+			// The game is closed or restarting: say so once, not twice a second.
+			if !gameDown {
+				gameDown = true
+				a.log.Warn("game connection lost, waiting", "err", err)
+			}
+			continue
+		}
+		if gameDown {
+			gameDown = false
+			a.log.Info("game connection back")
+			a.resetModState()
+			prev = cur // lines from before the restart are not new
 			continue
 		}
 		for _, line := range chatlog.NewLines(prev, cur) {
@@ -597,6 +618,16 @@ func mentions(text string, names []string) bool {
 		}
 	}
 	return false
+}
+
+// resetModState forgets everything the mod keeps only in the running client (build policy,
+// fall saves, the flight kit, the game mode), so the next roam step sets it all again.
+func (a *Agent) resetModState() {
+	a.protected, a.fork, a.noFlight, a.noTidy = false, false, false, false
+	a.fallSavesSet, a.flightKit, a.modeKnown = false, false, false
+	a.modeChecked = time.Time{}
+	a.flying, a.following, a.followAfter = false, "", ""
+	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
 }
 
 // lingerFor keeps the bot in place for at least d; a shorter wait never cuts a longer one.

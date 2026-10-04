@@ -68,6 +68,31 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 		}
 	}
 	a.applyFallSaves(ctx)
+	a.tidyInventory(ctx)
+}
+
+// tidyInventory keeps a few slots free (fork only). A full inventory blocked creativeGive and
+// made the mod fire rockets it could not move out of the hand.
+func (a *Agent) tidyInventory(ctx context.Context) {
+	if !a.fork || a.noTidy || a.flying {
+		return
+	}
+	text, err := a.mc.Call(ctx, "tidyInventory", map[string]any{"keepFree": 4})
+	if err != nil {
+		if unknownTool(err) {
+			a.noTidy = true // an older fork jar
+		} else {
+			a.log.Warn("tidy inventory", "err", err)
+		}
+		return
+	}
+	var r struct {
+		Freed int `json:"freed"`
+		Free  int `json:"free"`
+	}
+	if json.Unmarshal([]byte(text), &r) == nil && r.Freed > 0 {
+		a.log.Info("inventory tidied", "freed", r.Freed, "free", r.Free)
+	}
 }
 
 // applyFallSaves sets the mod's fall rescue (water bucket, ender pearl toward the nearest
@@ -154,6 +179,7 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 		return false
 	}
 	if a.creative && !a.flightKit {
+		a.tidyInventory(ctx)
 		a.flightKit = a.creativeGive(ctx, "elytra", 1) && a.creativeGive(ctx, "firework_rocket", 64)
 	}
 	y := 70

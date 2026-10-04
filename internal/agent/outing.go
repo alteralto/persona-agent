@@ -23,11 +23,11 @@ const (
 	outingLinger  = time.Minute // stay at the place before going back to the companion
 )
 
-// idleTurn is what the bot does after a quiet spell: every other time it leads an outing to a
-// known place, otherwise it just talks to someone nearby.
+// idleTurn is what the bot says after a quiet spell. It only talks: walks and flights come
+// from the activity scheduler alone, so two timers never send the bot two ways at once. While an
+// outing, activity or flight is under way the bot already speaks about it.
 func (a *Agent) idleTurn(ctx context.Context) {
-	a.idleTurns++
-	if a.idleTurns%2 == 1 && a.startOuting(ctx) {
+	if a.outing != nil || a.activity != nil || a.flying {
 		return
 	}
 	a.enqueue(replyJob{prompt: a.idlePrompt(), history: slices.Clone(a.history), at: time.Now()})

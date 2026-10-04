@@ -230,6 +230,8 @@ def main():
     p.add_argument("--say", help="speak this once and exit (voice check)")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Py4J logs every callback at INFO: one line per 20 ms voice packet (5.7 MB in an evening).
+    logging.getLogger("py4j").setLevel(logging.WARNING)
 
     speaker = Speaker(PiperVoice.load(args.voice), find_output(args.device))
     if args.say:

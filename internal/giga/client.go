@@ -33,6 +33,8 @@ type Client struct {
 	scope       string
 	model       string
 	http        *http.Client
+	oauthURL    string
+	chatURL     string
 
 	mu      sync.Mutex
 	token   string
@@ -58,6 +60,8 @@ func New(credentials, scope, model string, verifyTLS bool) *Client {
 		scope:       scope,
 		model:       model,
 		http:        &http.Client{Timeout: 30 * time.Second, Transport: tr},
+		oauthURL:    oauthURL,
+		chatURL:     chatURL,
 	}
 }
 
@@ -68,7 +72,7 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		return c.token, nil
 	}
 	form := url.Values{"scope": {c.scope}}.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauthURL, strings.NewReader(form))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.oauthURL, strings.NewReader(form))
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +109,7 @@ func (c *Client) Warm(ctx context.Context) error {
 	}
 	// Also resolve and connect to the chat host, so its address is cached too.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.Replace(chatURL, "/chat/completions", "/models", 1), nil)
+		strings.Replace(c.chatURL, "/chat/completions", "/models", 1), nil)
 	if err != nil {
 		return err
 	}
@@ -130,7 +134,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message, maxTokens int) (s
 		"temperature":        0.9,
 		"repetition_penalty": 1.15, // GigaChat-specific; stops the same phrasing every minute
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.chatURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +238,13 @@ func (d *cachedDialer) DialContext(ctx context.Context, network, addr string) (n
 // WithModel returns a client for another model that shares the token and connections.
 func (c *Client) WithModel(model string) *Client {
 	return &Client{dialer: c.dialer, credentials: c.credentials, scope: c.scope, model: model, http: c.http,
-		token: c.token, expires: c.expires}
+		token: c.token, expires: c.expires, oauthURL: c.oauthURL, chatURL: c.chatURL}
+}
+
+// WithEndpoints points the client at another server (a local stand-in in tests and the simulator).
+func (c *Client) WithEndpoints(oauth, chat string) *Client {
+	c.oauthURL, c.chatURL = oauth, chat
+	return c
 }
 
 // Models lists model ids available to these credentials.
@@ -244,7 +254,7 @@ func (c *Client) Models(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.Replace(chatURL, "/chat/completions", "/models", 1), nil)
+		strings.Replace(c.chatURL, "/chat/completions", "/models", 1), nil)
 	if err != nil {
 		return nil, err
 	}
