@@ -218,12 +218,14 @@ func rewrite(ctx context.Context, llm *giga.Client, c agent.Criteria, misses []m
 	if err != nil {
 		return c, err
 	}
-	i, j := strings.Index(text, "{"), strings.LastIndex(text, "}")
-	if i < 0 || j <= i {
+	i := strings.Index(text, "{")
+	if i < 0 {
 		return c, fmt.Errorf("no JSON in reply")
 	}
+	// Decode reads the first object and ignores what follows: the model sometimes adds a
+	// stray "}" or a comment after the JSON.
 	var nc agent.Criteria
-	if err := json.Unmarshal([]byte(text[i:j+1]), &nc); err != nil {
+	if err := json.NewDecoder(strings.NewReader(text[i:])).Decode(&nc); err != nil {
 		return c, err
 	}
 	for k := range c.RU {

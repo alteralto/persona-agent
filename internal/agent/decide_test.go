@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alteralto/persona-agent/internal/laya"
@@ -39,6 +40,7 @@ func TestCleanReply(t *testing.T) {
 		"  «Ладно, ладно»  ":      "Ладно, ладно",
 		"строка\nвторая   строка": "строка вторая строка",
 		"Попьём чайку 😊":          "Попьём чайку",
+		"Ох, ну что интересного рассказать... Помню я однажды нашёл редстоун глубоко под землёй. Целый день потом искал дорогу назад!": "Ох, ну что интересного рассказать... Помню я однажды нашёл редстоун глубоко под землёй.",
 	}
 	for in, want := range cases {
 		if got := cleanReply(in); got != want {
@@ -196,5 +198,13 @@ func TestDefendNotOnSmallTalk(t *testing.T) {
 		if d, ok := applyRules(Decision{Action: ActWait}, text); !ok || d.Action != ActDefend {
 			t.Errorf("%q: want defend, got %s", text, d.Action)
 		}
+	}
+}
+
+func TestFirstSentencesLongSentence(t *testing.T) {
+	s := strings.Repeat("слово ", 40) // 240 runes, no sentence end
+	got := firstSentences(strings.TrimSpace(s), 120)
+	if n := len([]rune(got)); n > 121 || !strings.HasSuffix(got, "…") || strings.Contains(got, "  ") {
+		t.Errorf("got %d runes: %q", n, got)
 	}
 }

@@ -103,8 +103,30 @@ func cleanReply(s string) string {
 		return r
 	}, s)
 	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > 200 {
-		s = string(r[:200])
+	return firstSentences(s, maxReplyRunes)
+}
+
+// maxReplyRunes: the prompt asks for 90; a little slack, then whole sentences are dropped.
+// Every extra sentence is another two seconds of speech before the bot can answer again.
+const maxReplyRunes = 120
+
+// firstSentences keeps whole sentences up to max runes; a single long sentence is cut at a word.
+func firstSentences(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
 	}
-	return s
+	cut := -1
+	for i := 0; i < max; i++ {
+		if (r[i] == '.' || r[i] == '!' || r[i] == '?' || r[i] == '…') && (i+1 == len(r) || r[i+1] == ' ') {
+			cut = i + 1
+		}
+	}
+	if cut > 20 {
+		return strings.TrimSpace(string(r[:cut]))
+	}
+	if i := strings.LastIndex(string(r[:max]), " "); i > 0 {
+		return strings.TrimRight(string(r[:max])[:i], ",;:—- ") + "…"
+	}
+	return string(r[:max])
 }
