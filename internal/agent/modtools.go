@@ -255,6 +255,18 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		Rocket int    `json:"rocketsUsed"`
 	}
 	_ = json.Unmarshal([]byte(text), &st)
+	var tel struct {
+		Mode     string  `json:"mode"`
+		Speed    float64 `json:"speed"`
+		Pitch    float64 `json:"pitch"`
+		Climb    float64 `json:"climbAngle"`
+		Distance float64 `json:"distance"`
+	}
+	if json.Unmarshal([]byte(text), &tel) == nil && tel.Mode != "" && st.Phase == "flying" {
+		// Telemetry from the fork's pilot, for tuning the flight from the log.
+		a.log.Info("flight: status", "mode", tel.Mode, "speed", tel.Speed, "pitch", tel.Pitch,
+			"climb", tel.Climb, "dist", tel.Distance)
+	}
 	switch st.Phase {
 	case "done", "failed", "idle":
 		a.flying = false
