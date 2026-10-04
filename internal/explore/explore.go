@@ -85,6 +85,21 @@ var builtWords = []string{"доск", "стекл", "шерст", "бетон", 
 var colorWords = []string{"розов", "красн", "оранж", "жёлт", "лайм", "зелён", "голуб", "син", "фиолет",
 	"пурпур", "бел", "чёрн", "сер", "коричн", "бирюз"}
 
+// colorAdj turns a colour stem into the feminine adjective: "лайм" → "лаймовая", "син" → "синяя".
+func colorAdj(stem string) string {
+	switch stem {
+	case "лайм", "фиолет", "бирюз":
+		return stem + "овая"
+	case "оранж", "коричн":
+		return stem + "евая"
+	case "пурпур":
+		return stem + "ная"
+	case "син":
+		return "синяя"
+	}
+	return stem + "ая"
+}
+
 // Summarize classifies surface blocks by their (Russian) names.
 func Summarize(raw string) (Finding, error) {
 	var cols []Column
@@ -122,7 +137,7 @@ func (f Finding) Landmark() (string, bool) {
 	if f.Built >= 6 {
 		desc := "постройка"
 		if color, n := topColor(f.Colors); n >= 4 {
-			desc = color + "ая постройка"
+			desc = colorAdj(color) + " постройка"
 		}
 		return fmt.Sprintf("%s (%s)", desc, strings.Join(f.Notable, ", ")), true
 	}

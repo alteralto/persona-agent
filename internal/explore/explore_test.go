@@ -117,3 +117,12 @@ func TestPlacesRoundTrip(t *testing.T) {
 		t.Errorf("Describe = %q", d)
 	}
 }
+
+func TestColorAdj(t *testing.T) {
+	for stem, want := range map[string]string{"лайм": "лаймовая", "син": "синяя", "розов": "розовая",
+		"оранж": "оранжевая", "коричн": "коричневая", "пурпур": "пурпурная", "чёрн": "чёрная"} {
+		if got := colorAdj(stem); got != want {
+			t.Errorf("colorAdj(%q) = %q, want %q", stem, got, want)
+		}
+	}
+}
