@@ -95,15 +95,16 @@ type Agent struct {
 	leading    bool // walking players to the burrow
 
 	// Fork features (see modtools.go).
-	creative      bool // from getGameState when the fork reports it, else from config
-	modeKnown     bool
-	modeChecked   time.Time
-	fork          bool // setBuildPolicy worked: the fork's tools are there
-	flightKit     bool
-	noFlight      bool
-	noTidy        bool
-	flying        bool
-	flightStarted time.Time
+	creative        bool // from getGameState when the fork reports it, else from config
+	modeKnown       bool
+	modeChecked     time.Time
+	fork            bool // setBuildPolicy worked: the fork's tools are there
+	flightKit       bool
+	noFlight        bool
+	noTidy          bool
+	followIdleSince time.Time
+	flying          bool
+	flightStarted   time.Time
 
 	journal *journal
 	people  *memory.Store

@@ -139,6 +139,7 @@ func (a *Agent) roam(ctx context.Context) {
 			}
 		}
 	}
+	a.checkFollowAlive(ctx, busy)
 	if a.outing != nil {
 		a.checkOuting(ctx, pos)
 		return
@@ -205,6 +206,28 @@ func (a *Agent) roam(ctx context.Context) {
 		a.places.MarkVisited(t.target) // unreachable for now; do not retry forever
 		a.savePlaces()
 		a.cancelTrip(ctx)
+	}
+}
+
+// checkFollowAlive re-sends @follow when the agent thinks it follows someone but the mod has
+// stood idle for a while: a follow the mod dropped (a stop, a flight, a failed path) otherwise
+// leaves the bot frozen, since roam does nothing while following.
+func (a *Agent) checkFollowAlive(ctx context.Context, busy bool) {
+	if a.following == "" || busy || a.flying {
+		a.followIdleSince = time.Time{}
+		return
+	}
+	if a.followIdleSince.IsZero() {
+		a.followIdleSince = time.Now()
+		return
+	}
+	if time.Since(a.followIdleSince) < 5*time.Second {
+		return
+	}
+	a.followIdleSince = time.Time{}
+	a.log.Info("follow dropped by the mod, resuming", "nick", a.following)
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@follow " + a.following}); err != nil {
+		a.log.Warn("resume follow", "err", err)
 	}
 }
 

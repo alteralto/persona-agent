@@ -189,7 +189,8 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("flight stop walk", "err", err)
 	}
-	a.flying = true // fall saves off before take-off: a glide must not trigger pearl throws
+	a.following = "" // the @stop above ends any follow; callers set followAfter to resume it
+	a.flying = true  // fall saves off before take-off: a glide must not trigger pearl throws
 	a.applyFallSaves(ctx)
 	if _, err := a.mc.Call(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}); err != nil {
 		if unknownTool(err) {
