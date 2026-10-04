@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,9 +49,22 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 		Self struct {
 			GameMode string `json:"gameMode"`
 		} `json:"self"`
+		Players []struct {
+			Name string `json:"name"`
+		} `json:"players"`
 	}
 	if json.Unmarshal([]byte(text), &st) != nil || st.Self.GameMode == "" {
 		return
+	}
+	// Which of the other bots are actually around: inviting Pon4ikYT when he is not on the
+	// server made the bot talk to nobody.
+	a.botsNear, a.botsKnown = nil, true
+	for _, p := range st.Players {
+		for _, b := range a.cfg.OtherBots {
+			if strings.EqualFold(p.Name, b) {
+				a.botsNear = append(a.botsNear, b)
+			}
+		}
 	}
 	creative := st.Self.GameMode == "creative"
 	if creative != a.creative || !a.modeKnown {
@@ -69,6 +83,24 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 	}
 	a.applyFallSaves(ctx)
 	a.tidyInventory(ctx)
+}
+
+// nearbyBots are the other bots in sight; with the upstream mod (no player list) all of them.
+func (a *Agent) nearbyBots() []string {
+	if !a.botsKnown {
+		return a.cfg.OtherBots
+	}
+	return a.botsNear
+}
+
+// companion is the first configured companion in sight, or "".
+func (a *Agent) companion() string {
+	for _, c := range a.cfg.Companions {
+		if !a.botsKnown || slices.ContainsFunc(a.botsNear, func(b string) bool { return strings.EqualFold(b, c) }) {
+			return c
+		}
+	}
+	return ""
 }
 
 // tidyInventory keeps a few slots free (fork only). A full inventory blocked creativeGive and

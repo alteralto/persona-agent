@@ -102,6 +102,8 @@ type Agent struct {
 	flightKit       bool
 	noFlight        bool
 	noTidy          bool
+	botsNear        []string
+	botsKnown       bool
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time
@@ -380,7 +382,8 @@ func (a *Agent) enqueue(job replyJob) {
 
 // idlePrompt asks for a remark of the bot's own; with companions around it opens a conversation.
 func (a *Agent) idlePrompt() string {
-	if len(a.cfg.OtherBots) == 0 {
+	bots := a.nearbyBots()
+	if len(bots) == 0 {
 		return idlePrompt
 	}
 	// A different topic each time, never the same twice in a row.
@@ -389,7 +392,7 @@ func (a *Agent) idlePrompt() string {
 		i++
 	}
 	a.lastTopic = i
-	who := spokenName(a.cfg.OtherBots[rand.IntN(len(a.cfg.OtherBots))])
+	who := spokenName(bots[rand.IntN(len(bots))])
 	return "Рядом с тобой " + who + ". Обратись к " + who + " по имени. Тема: " + idleTopics[i] + ". " +
 		"Одна короткая фраза до 90 символов. Не выдумывай, что собеседник делает, если этого нет в чате."
 }
@@ -650,7 +653,7 @@ func mentions(text string, names []string) bool {
 // fall saves, the flight kit, the game mode), so the next roam step sets it all again.
 func (a *Agent) resetModState() {
 	a.protected, a.fork, a.noFlight, a.noTidy = false, false, false, false
-	a.fallSavesSet, a.flightKit, a.modeKnown = false, false, false
+	a.fallSavesSet, a.flightKit, a.modeKnown, a.botsKnown = false, false, false, false
 	a.modeChecked = time.Time{}
 	a.flying, a.following, a.followAfter = false, "", ""
 	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false

@@ -34,7 +34,7 @@ func (a *Agent) idleTurn(ctx context.Context) {
 }
 
 func (a *Agent) startOuting(ctx context.Context) bool {
-	if a.places == nil || len(a.places.List) == 0 || !a.havePos || len(a.cfg.OtherBots) == 0 {
+	if a.places == nil || len(a.places.List) == 0 || !a.havePos || len(a.nearbyBots()) == 0 {
 		return false
 	}
 	// Pick a place not too close (no point) and not too far (they will not follow).
@@ -58,7 +58,8 @@ func (a *Agent) startOuting(ctx context.Context) bool {
 	}
 	a.trip, a.following = nil, ""
 	a.outing = &outing{place: p, started: time.Now()}
-	who := spokenName(a.cfg.OtherBots[rand.IntN(len(a.cfg.OtherBots))])
+	bots := a.nearbyBots()
+	who := spokenName(bots[rand.IntN(len(bots))])
 	dist := int(math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z))
 	dir := explore.Direction(a.pos, float64(p.X), float64(p.Z))
 	a.log.Info("outing: leading", "to", p.Desc, "x", p.X, "z", p.Z, "invite", who)
@@ -122,8 +123,17 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 	if !a.havePos {
 		return false
 	}
-	angle := rand.Float64() * 2 * math.Pi // no remembered place far enough: any direction
-	x, z := int(a.pos.X+80*math.Cos(angle)), int(a.pos.Z+80*math.Sin(angle))
+	// No remembered place far enough: out from home in any direction, or back home when already
+	// far, so a string of flight shows does not carry the bot away from its base.
+	cx, cz := a.pos.X, a.pos.Z
+	if a.places != nil && a.places.Home != nil {
+		cx, cz = a.places.Home.X, a.places.Home.Z
+	}
+	angle := rand.Float64() * 2 * math.Pi
+	x, z := int(cx+80*math.Cos(angle)), int(cz+80*math.Sin(angle))
+	if math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60 {
+		x, z = int(cx), int(cz)
+	}
 	if a.places != nil {
 		var far []explore.Place
 		for _, p := range a.places.List {

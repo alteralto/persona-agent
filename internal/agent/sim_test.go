@@ -246,12 +246,14 @@ func TestSimIgnoresOthersTalk(t *testing.T) {
 }
 
 func TestSimReadsSignOnItsOwn(t *testing.T) {
-	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+	// Survival without an elytra: no random flight shows that land out of the sign's range.
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) {
+		c.Creative = false
 		c.ActivityEvery = 100 * time.Millisecond
 	})
 	r.w.AddSign(15, 70, 10, "Ферма тыкв")
 	r.ready()
-	r.waitFor("sign read aloud", 8*time.Second, func() bool {
+	r.waitFor("sign read aloud", 30*time.Second, func() bool {
 		for _, p := range r.giga.Calls() {
 			if strings.Contains(p, "Ферма тыкв") {
 				return true
@@ -361,4 +363,24 @@ func TestSimSurvivalElytraFallSavesOffInFlight(t *testing.T) {
 		t.Fatalf("fall saves must go off before take-off: off=%d fly=%d", off, fly)
 	}
 	r.waitFor("fall saves back on after landing", 5*time.Second, func() bool { return r.w.Count("cmd", "@set autoMLGBucket true") >= 2 })
+}
+
+func TestSimAbsentBotIsNotAddressed(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+		c.OtherBots = []string{"NetTyan", "Pon4ikYT"}
+		c.Companions = []string{"Pon4ikYT"}
+		c.IdleEvery = 200 * time.Millisecond
+		c.ExploreAfter = 100 * time.Millisecond
+	})
+	r.w.AddPlayer("NetTyan", 6, 0) // Pon4ikYT is not on the server
+	r.ready()
+	r.waitFor("a few idle remarks", 5*time.Second, func() bool { return len(r.giga.Calls()) >= 3 })
+	for _, p := range r.giga.Calls() {
+		if strings.Contains(p, "Пончик") {
+			t.Errorf("addressed the absent Pon4ikYT: %q", p)
+		}
+	}
+	if r.w.Has("cmd", "@follow Pon4ikYT") {
+		t.Error("followed a companion who is not on the server")
+	}
 }

@@ -151,10 +151,11 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.maybeActivity(ctx) {
 		return
 	}
-	if a.following != "" && len(a.cfg.Companions) == 0 {
+	mate := a.companion() // a companion who is not on the server is not followed
+	if a.following != "" && mate == "" {
 		return
 	}
-	if len(a.cfg.Companions) > 0 {
+	if mate != "" {
 		if a.following != "" || time.Now().Before(a.lingerUntil) {
 			return
 		}
@@ -162,8 +163,8 @@ func (a *Agent) roam(ctx context.Context) {
 			if a.trip != nil {
 				a.cancelTrip(ctx)
 			}
-			a.log.Info("companion: staying close", "nick", a.cfg.Companions[0])
-			a.act(ctx, ActFollow, a.cfg.Companions[0])
+			a.log.Info("companion: staying close", "nick", mate)
+			a.act(ctx, ActFollow, mate)
 		}
 		return
 	}
@@ -225,6 +226,11 @@ func (a *Agent) checkFollowAlive(ctx context.Context, busy bool) {
 		return
 	}
 	a.followIdleSince = time.Time{}
+	if _, _, _, _, ok := a.playerPos(ctx, a.following); !ok {
+		a.log.Info("follow: player out of sight, stopping", "nick", a.following)
+		a.following = ""
+		return
+	}
 	a.log.Info("follow dropped by the mod, resuming", "nick", a.following)
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@follow " + a.following}); err != nil {
 		a.log.Warn("resume follow", "err", err)
