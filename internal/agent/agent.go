@@ -104,6 +104,8 @@ type Agent struct {
 	noTidy          bool
 	botsNear        []string
 	botsKnown       bool
+	othersNear      int
+	flightFailedAt  time.Time
 	outOfWorld      bool
 	followIdleSince time.Time
 	flying          bool
@@ -262,7 +264,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		if tick++; tick%4 == 0 { // every 2 s
 			a.roam(ctx)
 		}
-		if a.cfg.IdleEvery > 0 && time.Since(time.Unix(0, a.lastSpoke.Load())) > a.cfg.IdleEvery {
+		idleEvery := a.cfg.IdleEvery
+		if a.botsKnown && a.othersNear == 0 {
+			idleEvery = max(idleEvery, 5*time.Minute) // nobody around: no talking to the air every minute
+		}
+		if a.cfg.IdleEvery > 0 && time.Since(time.Unix(0, a.lastSpoke.Load())) > idleEvery {
 			a.lastSpoke.Store(time.Now().UnixNano()) // one idle remark per period even if it fails
 			a.idleTurn(ctx)
 		}

@@ -58,7 +58,7 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 	}
 	// Which of the other bots are actually around: inviting Pon4ikYT when he is not on the
 	// server made the bot talk to nobody.
-	a.botsNear, a.botsKnown = nil, true
+	a.botsNear, a.botsKnown, a.othersNear = nil, true, len(st.Players)
 	for _, p := range st.Players {
 		for _, b := range a.cfg.OtherBots {
 			if strings.EqualFold(p.Name, b) {
@@ -212,6 +212,10 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 	if a.noFlight || !a.fork { // upstream mod: no flyTo, no creativeGive
 		return false
 	}
+	// A take-off just failed (in water, under a roof): walk out instead of jumping again.
+	if time.Since(a.flightFailedAt) < time.Minute {
+		return false
+	}
 	if a.creative && !a.flightKit {
 		a.tidyInventory(ctx)
 		a.flightKit = a.creativeGive(ctx, "elytra", 1) && a.creativeGive(ctx, "firework_rocket", 64)
@@ -275,6 +279,9 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
+		if st.Phase == "failed" {
+			a.flightFailedAt = time.Now()
+		}
 		if st.Phase == "failed" && (st.Reason == "no elytra" || st.Reason == "no fireworks") && !a.creative {
 			a.noFlight = true // survival without the kit: walk from now on
 		}

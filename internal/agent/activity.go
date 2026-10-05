@@ -80,7 +80,13 @@ func (a *Agent) startSignTour(ctx context.Context) bool {
 // startScout walks to an unvisited chunk next to the bot, to find new places and signs.
 func (a *Agent) startScout(ctx context.Context) bool {
 	cur := explore.ChunkOf(a.pos)
-	next, ok := explore.Next(cur, cur, 2, a.places.VisitedSet())
+	// Around home, not around wherever the bot is: scouting "next door" each time walked it
+	// ever further away -- into a lake, last time.
+	center, radius := cur, 2
+	if a.places.Home != nil {
+		center, radius = explore.ChunkOf(*a.places.Home), max(a.cfg.ExploreRadius, 4)
+	}
+	next, ok := explore.Next(center, cur, radius, a.places.VisitedSet())
 	if !ok {
 		return false
 	}

@@ -253,7 +253,7 @@ func TestSimReadsSignOnItsOwn(t *testing.T) {
 	})
 	r.w.AddSign(15, 70, 10, "Ферма тыкв")
 	r.ready()
-	r.waitFor("sign read aloud", 30*time.Second, func() bool {
+	r.waitFor("sign read aloud", 60*time.Second, func() bool {
 		for _, p := range r.giga.Calls() {
 			if strings.Contains(p, "Ферма тыкв") {
 				return true
