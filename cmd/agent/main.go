@@ -56,6 +56,7 @@ func main() {
 		PeopleDir:       env("PEOPLE_DIR", `data\people`),
 		AutoCreative:    env("AUTO_CREATIVE", "false") == "true",
 		ActivityEvery:   envDuration("ACTIVITY_EVERY", 90*time.Second),
+		FlightShare:     envFloat("FLIGHT_SHARE", 0),
 		CreativeCommand: env("CREATIVE_COMMAND", "/gamemode creative"),
 		OthersNames:     splitList(env("OTHERS_NAMES", "")),
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),

@@ -103,6 +103,10 @@ func cleanReply(s string) string {
 		return r
 	}, s)
 	s = strings.Join(strings.Fields(s), " ")
+	// A quote the model opened or closed but not both («Вощёные ступеньки.» Ну...): drop them.
+	if strings.Count(s, "«") != strings.Count(s, "»") {
+		s = strings.NewReplacer("«", "", "»", "").Replace(s)
+	}
 	return firstSentences(s, maxReplyRunes)
 }
 

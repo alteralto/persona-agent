@@ -34,6 +34,10 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 		return false
 	}
 	a.lastActivity = time.Now()
+	// FlightShare > 0 (flight testing): that share of activities are flights, the rest as usual.
+	if a.cfg.FlightShare > 0 && rand.Float64() < a.cfg.FlightShare && a.startFlightShow(ctx) {
+		return true
+	}
 	r := rand.Float64()
 	switch {
 	case r < 0.35 && a.startOuting(ctx):

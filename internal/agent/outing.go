@@ -114,7 +114,7 @@ func spokenName(nick string) string {
 // gets stuck, so it flies almost everywhere.
 func (a *Agent) flyAbove() float64 {
 	if a.creative && a.fork {
-		return 20
+		return 40 // shorter hops overshoot: the take-off rocket alone carries 30-40 blocks
 	}
 	return 60
 }
@@ -134,10 +134,21 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 	if math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60 {
 		x, z = int(cx), int(cz)
 	}
+	// Flight testing (FLIGHT_SHARE): long legs, out 120-350 blocks from home and back home.
+	if a.cfg.FlightShare > 0 && a.places != nil && a.places.Home != nil {
+		if math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60 {
+			x, z = int(cx), int(cz)
+		} else {
+			r := 120 + rand.Float64()*230
+			x, z = int(cx+r*math.Cos(angle)), int(cz+r*math.Sin(angle))
+		}
+		a.log.Info("flight test leg", "x", x, "z", z, "home", math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60)
+		return a.startFlight(ctx, x, z)
+	}
 	if a.places != nil {
 		var far []explore.Place
 		for _, p := range a.places.List {
-			if d := math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z); d > 60 && d < 150 {
+			if d := math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z); d > 60 && d < 200 {
 				far = append(far, p)
 			}
 		}

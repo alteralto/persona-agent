@@ -52,7 +52,9 @@ type Config struct {
 	PeopleDir string
 	// AutoCreative: on this server the bot asks for creative mode with CreativeCommand.
 	// ActivityEvery: start something on the bot's own initiative this often (0 = off).
-	ActivityEvery   time.Duration
+	ActivityEvery time.Duration
+	// FlightShare: share of activities that are flights (0 = the usual mix, 15 %).
+	FlightShare     float64
 	AutoCreative    bool
 	CreativeCommand string
 	// OthersNames: how players call the other bots ("пончик", "nettyan"). A bot line that
