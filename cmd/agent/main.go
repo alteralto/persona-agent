@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alteralto/persona-agent/internal/agent"
+	"github.com/alteralto/persona-agent/internal/explore"
 	"github.com/alteralto/persona-agent/internal/giga"
 	"github.com/alteralto/persona-agent/internal/laya"
 	"github.com/alteralto/persona-agent/internal/mcp"
@@ -57,6 +59,7 @@ func main() {
 		AutoCreative:    env("AUTO_CREATIVE", "false") == "true",
 		ActivityEvery:   envDuration("ACTIVITY_EVERY", 90*time.Second),
 		FlightShare:     envFloat("FLIGHT_SHARE", 0),
+		Home:            homeFromEnv(env("HOME_XZ", "")),
 		CreativeCommand: env("CREATIVE_COMMAND", "/gamemode creative"),
 		OthersNames:     splitList(env("OTHERS_NAMES", "")),
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),
@@ -92,6 +95,15 @@ func main() {
 	if err := a.Run(ctx); err != nil {
 		fatal(log, "agent stopped", "err", err)
 	}
+}
+
+// homeFromEnv reads "x,z" (HOME_XZ); anything else means no fixed home.
+func homeFromEnv(s string) *explore.Pos {
+	var x, z float64
+	if _, err := fmt.Sscanf(strings.ReplaceAll(s, " ", ""), "%g,%g", &x, &z); err != nil {
+		return nil
+	}
+	return &explore.Pos{X: x, Z: z}
 }
 
 func fatal(log *slog.Logger, msg string, args ...any) {

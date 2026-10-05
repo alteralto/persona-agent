@@ -74,7 +74,8 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 		return false
 	}
 	// In creative, walls and fences we may not break are simply flown over.
-	if tx, tz, ok := a.walkTarget(); ok && a.creative && a.startFlight(ctx, tx, tz) {
+	if tx, tz, ok := a.walkTarget(); ok && a.creative &&
+		math.Hypot(float64(tx)-pos.X, float64(tz)-pos.Z) > a.flyAbove() && a.startFlight(ctx, tx, tz) {
 		a.log.Info("stuck: flying over instead", "x", int(pos.X), "z", int(pos.Z), "to_x", tx, "to_z", tz)
 		a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
 		a.stillPos, a.stillSince = pos, time.Now()
@@ -121,6 +122,12 @@ func (a *Agent) roam(ctx context.Context) {
 	}
 	if a.checkStuck(ctx, pos, busy) {
 		return
+	}
+	if h := a.cfg.Home; h != nil && (a.places.Home == nil || a.places.Home.X != h.X || a.places.Home.Z != h.Z) {
+		home := explore.Pos{X: h.X, Y: pos.Y, Z: h.Z} // set by hand (HOME=x,z): an open spot, not a bunker
+		a.places.Home = &home
+		a.savePlaces()
+		a.log.Info("home set from config", "x", int(h.X), "z", int(h.Z))
 	}
 	if a.places.Home == nil {
 		home := pos
