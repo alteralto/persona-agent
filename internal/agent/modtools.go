@@ -303,6 +303,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		Phase  string `json:"phase"`
 		Reason string `json:"reason"`
 		Rocket int    `json:"rocketsUsed"`
+		Sky    string `json:"openSky"`
 	}
 	_ = json.Unmarshal([]byte(text), &st)
 	var tel struct {
@@ -323,8 +324,22 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
+		if st.Phase != "failed" {
+			a.roofRetries = 0
+		}
 		if st.Phase == "failed" {
 			a.flightFailedAt = time.Now()
+			// Under trees or a roof with open sky close by: step out there and take off again.
+			if sx, sz, ok := parseBlockPos(st.Sky); ok && st.Reason == "under a roof" && a.roofRetries < 2 {
+				a.roofRetries++
+				cmd := fmt.Sprintf("@goto %d %d", sx, sz)
+				if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err == nil {
+					a.retryFlight = &[2]int{a.flyX, a.flyZ}
+					a.retryFrom = [2]int{sx, sz}
+					a.log.Info("flight: stepping out from under the roof", "cmd", cmd)
+					return false
+				}
+			}
 			// Under a roof, boxed in, in water: go there on foot instead (walks out of a bunker).
 			if a.followAfter == "" && (st.Reason == "under a roof" || st.Reason == "blocked" || st.Reason == "in water") {
 				cmd := fmt.Sprintf("@goto %d %d", a.flyX, a.flyZ)

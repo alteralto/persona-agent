@@ -142,6 +142,16 @@ func (a *Agent) roam(ctx context.Context) {
 		a.modeChecked = time.Now()
 		a.refreshGameMode(ctx)
 	}
+	// Stepped out from under the trees: take off again for the same target.
+	if r := a.retryFlight; r != nil && !a.flying {
+		if math.Hypot(pos.X-float64(a.retryFrom[0]), pos.Z-float64(a.retryFrom[1])) < 2.5 || !busy {
+			a.retryFlight = nil
+			a.flightFailedAt = time.Time{}
+			if a.startFlight(ctx, r[0], r[1]) {
+				return
+			}
+		}
+	}
 	if a.flying {
 		if a.checkFlight(ctx) {
 			return
