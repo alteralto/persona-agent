@@ -106,6 +106,7 @@ type Agent struct {
 	noTidy          bool
 	botsNear        []string
 	botsKnown       bool
+	flyX, flyZ      int
 	swimming        bool
 	noSwim          bool
 	wetSince        time.Time

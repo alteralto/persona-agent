@@ -216,6 +216,7 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 	if !a.takeOff(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}) {
 		return false
 	}
+	a.flyX, a.flyZ = x, z
 	a.log.Info("flight: taking off", "x", x, "z", z)
 	return true
 }
@@ -324,6 +325,15 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
 		if st.Phase == "failed" {
 			a.flightFailedAt = time.Now()
+			// Under a roof, boxed in, in water: go there on foot instead (walks out of a bunker).
+			if a.followAfter == "" && (st.Reason == "under a roof" || st.Reason == "blocked" || st.Reason == "in water") {
+				cmd := fmt.Sprintf("@goto %d %d", a.flyX, a.flyZ)
+				if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err != nil {
+					a.log.Warn("walk after failed flight", "err", err)
+				} else {
+					a.log.Info("flight failed, walking", "reason", st.Reason, "cmd", cmd)
+				}
+			}
 		}
 		if st.Phase == "failed" && (st.Reason == "no elytra" || st.Reason == "no fireworks") && !a.creative {
 			a.noFlight = true // survival without the kit: walk from now on
