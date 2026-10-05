@@ -136,13 +136,17 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 	}
 	// Flight testing (FLIGHT_SHARE): long legs, out 120-350 blocks from home and back home.
 	if a.cfg.FlightShare > 0 && a.places != nil && a.places.Home != nil {
-		if math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60 {
+		// Strictly out, home, out, home: by distance alone the bot, exploring after each landing,
+		// was always "far from home" and flew nothing but home legs.
+		home := a.testLegOut && math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 40
+		if home {
 			x, z = int(cx), int(cz)
 		} else {
 			r := 120 + rand.Float64()*230
 			x, z = int(cx+r*math.Cos(angle)), int(cz+r*math.Sin(angle))
 		}
-		a.log.Info("flight test leg", "x", x, "z", z, "home", math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60)
+		a.testLegOut = !home
+		a.log.Info("flight test leg", "x", x, "z", z, "home", home)
 		return a.startFlight(ctx, x, z)
 	}
 	if a.places != nil {

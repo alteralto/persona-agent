@@ -108,6 +108,7 @@ type Agent struct {
 	noTidy          bool
 	botsNear        []string
 	botsKnown       bool
+	testLegOut      bool
 	flyX, flyZ      int
 	swimming        bool
 	noSwim          bool
