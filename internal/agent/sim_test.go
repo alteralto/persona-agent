@@ -384,3 +384,17 @@ func TestSimAbsentBotIsNotAddressed(t *testing.T) {
 		t.Error("followed a companion who is not on the server")
 	}
 }
+
+func TestSimSwimsOutOfLake(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+		c.ActivityEvery = 100 * time.Millisecond // it would keep trying to walk off
+	})
+	r.w.AddLake(-20, -20, 40, 40)
+	r.w.PutBot(10, 25) // nearest shore: z = 41
+	r.ready()
+	r.waitFor("swim to shore", 8*time.Second, func() bool { return r.w.Has("tool", "swimToShore") })
+	r.waitFor("ashore", 8*time.Second, func() bool { return !r.w.InWater() })
+	if n := r.w.Count("tool", "flyTo"); n > 1 {
+		t.Errorf("tried to take off from the water %d times", n)
+	}
+}

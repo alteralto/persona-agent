@@ -104,6 +104,10 @@ type Agent struct {
 	noTidy          bool
 	botsNear        []string
 	botsKnown       bool
+	swimming        bool
+	noSwim          bool
+	wetSince        time.Time
+	swimPauseUntil  time.Time
 	othersNear      int
 	flightFailedAt  time.Time
 	outOfWorld      bool
@@ -659,7 +663,7 @@ func mentions(text string, names []string) bool {
 // resetModState forgets everything the mod keeps only in the running client (build policy,
 // fall saves, the flight kit, the game mode), so the next roam step sets it all again.
 func (a *Agent) resetModState() {
-	a.protected, a.fork, a.noFlight, a.noTidy = false, false, false, false
+	a.protected, a.fork, a.noFlight, a.noTidy, a.noSwim, a.swimming = false, false, false, false, false, false
 	a.fallSavesSet, a.flightKit, a.modeKnown, a.botsKnown = false, false, false, false
 	a.modeChecked = time.Time{}
 	a.flying, a.following, a.followAfter = false, "", ""

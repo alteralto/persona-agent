@@ -116,6 +116,9 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.leading && a.places.Home != nil && math.Hypot(pos.X-a.places.Home.X, pos.Z-a.places.Home.Z) < 5 {
 		a.leading = false // brought them home
 	}
+	if a.checkWater(ctx) {
+		return
+	}
 	if a.checkStuck(ctx, pos, busy) {
 		return
 	}

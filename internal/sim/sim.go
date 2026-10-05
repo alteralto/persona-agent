@@ -59,6 +59,9 @@ type World struct {
 	events    []Event
 	signs     []Sign
 	buildings []building
+	lakes     [][4]float64 // x0, z0, x1, z1
+	swimming  bool
+	swimTo    [2]float64
 	free      int
 	rockets   int
 
@@ -115,6 +118,37 @@ func (w *World) AddBuilding(x, z, r int, block string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.buildings = append(w.buildings, building{x, z, r, block})
+}
+
+// AddLake puts water over the rectangle: the bot there is "in water" and walks barely move it.
+func (w *World) AddLake(x0, z0, x1, z1 float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lakes = append(w.lakes, [4]float64{min(x0, x1), min(z0, z1), max(x0, x1), max(z0, z1)})
+}
+
+// PutBot moves the bot, e.g. into a lake.
+func (w *World) PutBot(x, z float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.x, w.z = x, z
+}
+
+func (w *World) inWaterLocked(x, z float64) bool {
+	for _, l := range w.lakes {
+		if x >= l[0] && x <= l[2] && z >= l[1] && z <= l[3] {
+			return true
+		}
+	}
+	return false
+}
+
+// InWater reports whether the bot is in a lake.
+func (w *World) InWater() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stepLocked()
+	return w.inWaterLocked(w.x, w.z)
 }
 
 // SetDown makes every tool call fail, as when the game is closed.
@@ -206,6 +240,16 @@ func (w *World) stepLocked() {
 		}
 		return
 	}
+	if w.swimming {
+		if w.moveLocked(w.swimTo, 4*dt, 0.3) {
+			w.swimming = false
+		}
+		return
+	}
+	// Like the real pathfinder: in water a walk goes nowhere.
+	if w.inWaterLocked(w.x, w.z) {
+		return
+	}
 	if w.follow != "" {
 		if p := w.players[w.follow]; p != nil {
 			w.moveLocked(*p, w.opt.WalkSpeed*dt, 2)
@@ -271,13 +315,13 @@ func (w *World) Handler() http.Handler {
 }
 
 var forkTools = map[string]bool{"setBuildPolicy": true, "readSigns": true, "creativeGive": true,
-	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true}
+	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
 		return "Unknown tool: " + tool, true
 	}
-	if tool != "getRecentChat" && tool != "pathStatus" && tool != "getGameState" && tool != "flyStatus" {
+	if tool != "getRecentChat" && tool != "pathStatus" && tool != "getGameState" && tool != "flyStatus" && tool != "swimStatus" {
 		w.logLocked("tool", tool+" "+compact(args))
 	}
 	switch tool {
@@ -316,7 +360,8 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 				"distance": fmt.Sprintf("%.1f", math.Hypot(p[0]-w.x, p[1]-w.z))})
 		}
 		return map[string]any{"self": map[string]any{"gameMode": w.opt.Mode, "flying": w.flyPhase == "flying",
-			"pos": fmt.Sprintf("%.1f,%.1f,%.1f", w.x, w.y, w.z)}, "players": players}, false
+			"inWater": w.inWaterLocked(w.x, w.z),
+			"pos":     fmt.Sprintf("%.1f,%.1f,%.1f", w.x, w.y, w.z)}, "players": players}, false
 	case "setBuildPolicy":
 		return map[string]any{"ok": true, "breakOnlyNatural": args["breakOnlyNatural"], "allowPlace": args["allowPlace"]}, false
 	case "clearProtectedAreas", "markProtectedArea":
@@ -356,7 +401,25 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			freed, w.free = keep-w.free, keep
 		}
 		return map[string]any{"ok": w.free >= keep, "free": w.free, "freed": freed, "mode": w.opt.Mode}, false
+	case "swimToShore":
+		if !w.inWaterLocked(w.x, w.z) {
+			return map[string]any{"phase": "done", "reason": "not in water"}, false
+		}
+		w.goal, w.follow = nil, ""
+		w.swimTo, w.swimming = w.shoreLocked(), true
+		w.logLocked("swim", fmt.Sprintf("%d %d", int(w.swimTo[0]), int(w.swimTo[1])))
+		return map[string]any{"phase": "swimming"}, false
+	case "swimStatus":
+		phase := "done"
+		if w.swimming {
+			phase = "swimming"
+		}
+		return map[string]any{"phase": phase, "reason": "ashore", "inWater": w.inWaterLocked(w.x, w.z)}, false
 	case "flyTo":
+		if w.inWaterLocked(w.x, w.z) {
+			w.flyPhase, w.flyReason = "failed", "in water"
+			return map[string]any{"phase": "failed", "reason": "in water"}, false
+		}
 		if !w.opt.Elytra {
 			w.flyPhase, w.flyReason = "failed", "no elytra"
 			return map[string]any{"phase": "failed", "reason": "no elytra"}, false
@@ -403,6 +466,26 @@ func (w *World) commandLocked(cmd string) {
 	case "@stop":
 		w.goal, w.follow = nil, ""
 	}
+}
+
+// shoreLocked is the nearest point just outside the lake the bot is in.
+func (w *World) shoreLocked() [2]float64 {
+	for _, l := range w.lakes {
+		if !(w.x >= l[0] && w.x <= l[2] && w.z >= l[1] && w.z <= l[3]) {
+			continue
+		}
+		best, bestD := [2]float64{l[0] - 1, w.z}, w.x-l[0]
+		for _, c := range []struct {
+			p [2]float64
+			d float64
+		}{{[2]float64{l[2] + 1, w.z}, l[2] - w.x}, {[2]float64{w.x, l[1] - 1}, w.z - l[1]}, {[2]float64{w.x, l[3] + 1}, l[3] - w.z}} {
+			if c.d < bestD {
+				best, bestD = c.p, c.d
+			}
+		}
+		return best
+	}
+	return [2]float64{w.x, w.z}
 }
 
 func (w *World) surfaceLocked(radius int) []map[string]string {

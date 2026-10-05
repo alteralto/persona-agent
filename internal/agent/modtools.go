@@ -388,3 +388,66 @@ func (a *Agent) flyToPlayer(ctx context.Context, name string) bool {
 	a.log.Info("flight: to player", "nick", nick, "x", int(x), "z", int(z))
 	return true
 }
+
+// checkWater gets the bot out of a lake: the mod's pathfinder is poor in water and elytra do not
+// take off from it, so a bot that wandered in stayed for minutes. After a few seconds in water
+// it swims to the nearest dry shore (fork's swimToShore) and the rest of roam waits.
+func (a *Agent) checkWater(ctx context.Context) bool {
+	if !a.fork || a.noSwim || a.flying {
+		return false
+	}
+	if a.swimming {
+		text, err := a.mc.Call(ctx, "swimStatus", nil)
+		var st struct {
+			Phase  string `json:"phase"`
+			Reason string `json:"reason"`
+		}
+		if err == nil && json.Unmarshal([]byte(text), &st) == nil && st.Phase == "swimming" {
+			return true
+		}
+		a.swimming = false
+		a.wetSince = time.Time{}
+		a.log.Info("water: "+st.Phase, "reason", st.Reason)
+		if st.Phase == "failed" {
+			a.swimPauseUntil = time.Now().Add(30 * time.Second)
+		}
+		return false
+	}
+	text, err := a.mc.Call(ctx, "getGameState", nil)
+	if err != nil {
+		return false
+	}
+	var gs struct {
+		Self struct {
+			InWater bool `json:"inWater"`
+		} `json:"self"`
+	}
+	if json.Unmarshal([]byte(text), &gs) != nil || !gs.Self.InWater {
+		a.wetSince = time.Time{}
+		return false
+	}
+	if a.wetSince.IsZero() {
+		a.wetSince = time.Now()
+		return false
+	}
+	if time.Since(a.wetSince) < 4*time.Second || time.Now().Before(a.swimPauseUntil) {
+		return false
+	}
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+		a.log.Warn("water stop", "err", err)
+	}
+	out, err := a.mc.Call(ctx, "swimToShore", map[string]any{"radius": 32})
+	if err != nil {
+		if unknownTool(err) {
+			a.noSwim = true // an older fork jar
+		} else {
+			a.log.Warn("swim to shore", "err", err)
+		}
+		return false
+	}
+	// The walk that led into the lake is dropped; companions and activities pick up after.
+	a.trip, a.outing, a.activity, a.following, a.leading = nil, nil, nil, "", false
+	a.swimming = true
+	a.log.Info("water: swimming to shore", "result", out)
+	return true
+}
