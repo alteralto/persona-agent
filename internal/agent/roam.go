@@ -153,6 +153,12 @@ func (a *Agent) roam(ctx context.Context) {
 		}
 	}
 	a.checkFollowAlive(ctx, busy)
+	// The one we follow took off on an elytra: fly beside them instead of running below.
+	if a.following != "" && a.fork && !a.noFlight && a.leaderFlying(ctx, a.following) {
+		if a.startWingman(ctx, a.following) {
+			return
+		}
+	}
 	if a.outing != nil {
 		a.checkOuting(ctx, pos)
 		return

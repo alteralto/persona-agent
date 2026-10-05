@@ -209,6 +209,31 @@ func (a *Agent) creativeGive(ctx context.Context, item string, count int) bool {
 // and fireworks from the creative inventory (once per run). Returns false when flight is not
 // possible, and the caller walks instead.
 func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
+	y := 70
+	if a.places != nil && a.places.Home != nil {
+		y = int(a.places.Home.Y)
+	}
+	if !a.takeOff(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}) {
+		return false
+	}
+	a.log.Info("flight: taking off", "x", x, "z", z)
+	return true
+}
+
+// startWingman takes off to fly beside a player who is flying (fork's flyFollow); after they
+// land the bot follows them on foot again.
+func (a *Agent) startWingman(ctx context.Context, nick string) bool {
+	if !a.takeOff(ctx, "flyFollow", map[string]any{"nick": nick}) {
+		return false
+	}
+	a.followAfter = nick
+	a.log.Info("flight: wingman", "leader", nick)
+	return true
+}
+
+// takeOff readies the flight kit and calls a fork flight tool (flyTo or flyFollow). False when
+// flight is not possible, and the caller walks instead.
+func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) bool {
 	if a.noFlight || !a.fork { // upstream mod: no flyTo, no creativeGive
 		return false
 	}
@@ -220,17 +245,13 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 		a.tidyInventory(ctx)
 		a.flightKit = a.creativeGive(ctx, "elytra", 1) && a.creativeGive(ctx, "firework_rocket", 64)
 	}
-	y := 70
-	if a.places != nil && a.places.Home != nil {
-		y = int(a.places.Home.Y)
-	}
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("flight stop walk", "err", err)
 	}
 	a.following = "" // the @stop above ends any follow; callers set followAfter to resume it
 	a.flying = true  // fall saves off before take-off: a glide must not trigger pearl throws
 	a.applyFallSaves(ctx)
-	if _, err := a.mc.Call(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}); err != nil {
+	if _, err := a.mc.Call(ctx, tool, args); err != nil {
 		if unknownTool(err) {
 			a.noFlight = true // upstream mod: never try again this run
 		} else {
@@ -241,8 +262,30 @@ func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
 		return false
 	}
 	a.flying, a.flightStarted = true, time.Now()
-	a.log.Info("flight: taking off", "x", x, "z", z)
 	return true
+}
+
+// leaderFlying reports whether the player the bot follows is flying an elytra right now.
+func (a *Agent) leaderFlying(ctx context.Context, nick string) bool {
+	text, err := a.mc.Call(ctx, "getGameState", nil)
+	if err != nil {
+		return false
+	}
+	var st struct {
+		Players []struct {
+			Name    string `json:"name"`
+			Gliding bool   `json:"gliding"`
+		} `json:"players"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil {
+		return false
+	}
+	for _, p := range st.Players {
+		if strings.EqualFold(p.Name, nick) {
+			return p.Gliding
+		}
+	}
+	return false
 }
 
 // checkFlight polls an ongoing flight; true while the bot is still in the air or taking off.

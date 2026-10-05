@@ -55,6 +55,8 @@ type World struct {
 	goal      *[2]float64
 	follow    string
 	players   map[string]*[2]float64
+	pvel      map[string][2]float64 // blocks per second while a player flies
+	flyLeader string
 	chat      []string
 	events    []Event
 	signs     []Sign
@@ -86,7 +88,7 @@ func New(o Options) *World {
 		o.FlySpeed = 200
 	}
 	now := time.Now()
-	return &World{opt: o, start: now, last: now, y: 70, players: map[string]*[2]float64{},
+	return &World{opt: o, start: now, last: now, y: 70, players: map[string]*[2]float64{}, pvel: map[string][2]float64{},
 		free: o.FreeSlots, flyPhase: "idle"}
 }
 
@@ -96,6 +98,22 @@ func (w *World) AddPlayer(name string, x, z float64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.players[name] = &[2]float64{x, z}
+}
+
+// FlyPlayer makes a player fly an elytra at (vx, vz) blocks per second.
+func (w *World) FlyPlayer(name string, vx, vz float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stepLocked()
+	w.pvel[name] = [2]float64{vx, vz}
+}
+
+// LandPlayer ends a player's flight where they are.
+func (w *World) LandPlayer(name string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stepLocked()
+	delete(w.pvel, name)
 }
 
 // Say puts a player's chat line into the log the agent reads.
@@ -226,6 +244,12 @@ func (w *World) stepLocked() {
 	now := time.Now()
 	dt := now.Sub(w.last).Seconds()
 	w.last = now
+	for name, v := range w.pvel {
+		if p := w.players[name]; p != nil {
+			p[0] += v[0] * dt
+			p[1] += v[1] * dt
+		}
+	}
 	switch w.flyPhase {
 	case "takeoff":
 		if now.Sub(w.flyAt) > 200*time.Millisecond {
@@ -234,6 +258,20 @@ func (w *World) stepLocked() {
 		}
 		return
 	case "flying":
+		if w.flyLeader != "" { // wingman: keep close while they fly, land beside them after
+			p := w.players[w.flyLeader]
+			if p == nil {
+				w.flyPhase, w.flyReason, w.flyLeader = "done", "lost leader", ""
+				return
+			}
+			_, gliding := w.pvel[w.flyLeader]
+			w.moveLocked(*p, w.opt.FlySpeed*dt, 5)
+			if !gliding {
+				w.flyPhase, w.flyReason, w.flyLeader = "done", "arrived", ""
+				w.logLocked("land", fmt.Sprintf("%d %d", int(w.x), int(w.z)))
+			}
+			return
+		}
 		if w.moveLocked(w.flyTarget, w.opt.FlySpeed*dt, 3) {
 			w.flyPhase, w.flyReason = "done", "arrived"
 			w.logLocked("land", fmt.Sprintf("%d %d", int(w.x), int(w.z)))
@@ -314,7 +352,7 @@ func (w *World) Handler() http.Handler {
 	})
 }
 
-var forkTools = map[string]bool{"setBuildPolicy": true, "readSigns": true, "creativeGive": true,
+var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
 	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
@@ -356,7 +394,8 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	case "getGameState":
 		var players []map[string]any
 		for name, p := range w.players {
-			players = append(players, map[string]any{"name": name, "pos": fmt.Sprintf("%.1f,70.0,%.1f", p[0], p[1]),
+			_, gliding := w.pvel[name]
+			players = append(players, map[string]any{"name": name, "pos": fmt.Sprintf("%.1f,70.0,%.1f", p[0], p[1]), "gliding": gliding,
 				"distance": fmt.Sprintf("%.1f", math.Hypot(p[0]-w.x, p[1]-w.z))})
 		}
 		return map[string]any{"self": map[string]any{"gameMode": w.opt.Mode, "flying": w.flyPhase == "flying",
@@ -430,6 +469,21 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		w.flown++
 		w.logLocked("fly", fmt.Sprintf("%d %d", int(w.flyTarget[0]), int(w.flyTarget[1])))
 		return map[string]any{"phase": "equip"}, false
+	case "flyFollow":
+		nick, _ := args["nick"].(string)
+		if w.players[nick] == nil {
+			return map[string]any{"phase": "failed", "reason": "not in sight"}, false
+		}
+		if !w.opt.Elytra {
+			w.flyPhase, w.flyReason = "failed", "no elytra"
+			return map[string]any{"phase": "failed", "reason": "no elytra"}, false
+		}
+		w.goal, w.follow = nil, ""
+		w.flyLeader = nick
+		w.flyPhase, w.flyReason, w.flyAt = "takeoff", "", time.Now()
+		w.flown++
+		w.logLocked("fly", "wingman "+nick)
+		return map[string]any{"phase": "equip", "leader": nick}, false
 	case "flyStatus":
 		return map[string]any{"phase": w.flyPhase, "reason": w.flyReason, "rocketsUsed": w.rockets}, false
 	case "flyStop":

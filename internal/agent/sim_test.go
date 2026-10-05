@@ -398,3 +398,20 @@ func TestSimSwimsOutOfLake(t *testing.T) {
 		t.Errorf("tried to take off from the water %d times", n)
 	}
 }
+
+func TestSimWingmanFollowsFlyingPlayer(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, иди за мной")
+	r.waitFor("@follow Alex", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
+	r.w.FlyPlayer("Alex", 30, 10) // takes off and flies away
+	r.waitFor("wingman take-off", 4*time.Second, func() bool { return r.w.Has("fly", "wingman Alex") })
+	time.Sleep(1500 * time.Millisecond)
+	if d := r.w.DistanceTo("Alex"); d > 12 {
+		t.Errorf("fell %.0f blocks behind the leader", d)
+	}
+	r.w.LandPlayer("Alex")
+	r.waitFor("landed", 4*time.Second, func() bool { return r.w.Has("land", "") })
+	r.waitFor("on foot again", 4*time.Second, func() bool { return r.w.Count("cmd", "@follow Alex") >= 2 })
+}
