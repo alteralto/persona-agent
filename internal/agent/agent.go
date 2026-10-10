@@ -109,6 +109,7 @@ type Agent struct {
 	lastStuck       time.Time
 	lastChime       time.Time // the last time he joined a talk he was not named in
 	lastMingle      time.Time // the last small thing he did among people (activity.go)
+	lastTopicMingle int
 	hovering        bool      // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time // the last time it joined a player in the air
 	leading         bool      // walking players to the burrow

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/alteralto/persona-agent/internal/explore"
 )
@@ -79,7 +80,7 @@ func (a *Agent) startSignTour(ctx context.Context) bool {
 	for _, s := range a.signsNear(ctx, 48) {
 		s := s
 		text := signText(s)
-		if text == "" || s.Distance < 4 || a.readSigns[s.Pos] {
+		if text == "" || mostlyNumbers(text) || s.Distance < 4 || a.readSigns[s.Pos] {
 			continue
 		}
 		best = &s
@@ -342,7 +343,12 @@ func (a *Agent) mingle(ctx context.Context) bool {
 			a.log.Info("mingle: steps closer", "player", near.name)
 		}
 	}
-	topic := mingleTopics[rand.IntN(len(mingleTopics))]
+	i := rand.IntN(len(mingleTopics) - 1)
+	if i >= a.lastTopicMingle { // never the same topic twice running
+		i++
+	}
+	a.lastTopicMingle = i
+	topic := mingleTopics[i]
 	a.log.Info("mingle: talks", "player", near.name, "topic", topic)
 	a.lastSpoke.Store(time.Now().UnixNano())
 	a.enqueue(replyJob{
@@ -363,4 +369,24 @@ func (a *Agent) celebrate(ctx context.Context, why string) {
 	if a.salute(ctx, 1) {
 		a.log.Info("celebrate", "why", why)
 	}
+}
+
+// mostlyNumbers: a scoreboard or an address plate ("№ 11 Участник #64444063 10 баллов"), dull to
+// read aloud: more digits than letters, or a long number (an id, a phone).
+func mostlyNumbers(text string) bool {
+	digits, letters, run := 0, 0, 0
+	for _, r := range text {
+		if unicode.IsDigit(r) {
+			digits++
+			if run++; run >= 5 {
+				return true
+			}
+			continue
+		}
+		run = 0
+		if unicode.IsLetter(r) {
+			letters++
+		}
+	}
+	return digits > letters
 }
