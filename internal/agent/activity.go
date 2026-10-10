@@ -15,7 +15,7 @@ import (
 // activity is something the bot does on its own initiative, independent of how chatty the
 // others are: idle-only behaviour never fired while two other bots talked non-stop.
 type activity struct {
-	kind    string // "sign" | "scout"
+	kind    string // "sign" | "scout" | "visit"
 	x, z    int
 	label   string
 	started time.Time
@@ -36,6 +36,11 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	a.lastActivity = time.Now()
 	// FlightShare > 0 (flight testing): that share of activities are flights, the rest as usual.
 	if a.cfg.FlightShare > 0 && rand.Float64() < a.cfg.FlightShare && a.startFlightShow(ctx) {
+		return true
+	}
+	// Players on the server but none close: go over to the nearest one (not a companion: a
+	// visit, not a follow).
+	if a.startVisit(ctx) {
 		return true
 	}
 	// Now and then a fireworks show for whoever is around (creative only).
@@ -157,6 +162,18 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 			})
 		case "scout":
 			a.survey(ctx, pos, explore.ChunkOf(pos))
+		case "visit":
+			a.lingerFor(visitStay) // stay near them a while, doing its own things
+			if time.Since(a.greeted[act.label]) > time.Hour {
+				a.greeted[act.label] = time.Now()
+				a.enqueue(replyJob{
+					prompt: fmt.Sprintf("Ты сам подошёл поближе к игроку %s, он в десятке блоков от тебя. "+
+						"Поздоровайся с ним по имени коротко и ненавязчиво, в характере. Одна фраза до 90 символов.",
+						spokenName(act.label)),
+					history: append([]string(nil), a.history...),
+					at:      time.Now(),
+				})
+			}
 		}
 		return
 	}
@@ -167,6 +184,46 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 			a.log.Warn("activity stop", "err", err)
 		}
 	}
+}
+
+const (
+	visitNear  = 30.0             // someone this close: the bot is among people already
+	visitShort = 12.0             // stop this far from the player, not on top of them
+	visitAgain = 5 * time.Minute  // the same player at most this often
+	visitStay  = 90 * time.Second // then stay near them a while
+)
+
+// startVisit goes over to the nearest player in sight when nobody is close. It is a visit, not
+// a follow: the bot stops short, stays a while, and lets them go where they like.
+func (a *Agent) startVisit(ctx context.Context) bool {
+	if a.visited == nil {
+		a.visited, a.greeted = map[string]time.Time{}, map[string]time.Time{}
+	}
+	var best *seenPlayer
+	for _, p := range a.visiblePlayers(ctx) {
+		if p.dist <= visitNear {
+			return false // already among people
+		}
+		if time.Since(a.visited[p.name]) < visitAgain {
+			continue
+		}
+		if best == nil || p.dist < best.dist {
+			best = &p
+		}
+	}
+	if best == nil || !a.havePos {
+		return false
+	}
+	k := (best.dist - visitShort) / best.dist
+	x := int(a.pos.X + (best.x-a.pos.X)*k)
+	z := int(a.pos.Z + (best.z-a.pos.Z)*k)
+	if !a.walkTo(ctx, x, z) {
+		return false
+	}
+	a.visited[best.name] = time.Now()
+	a.activity = &activity{kind: "visit", x: x, z: z, label: best.name, started: time.Now()}
+	a.log.Info("activity: visiting", "player", best.name, "dist", int(best.dist))
+	return true
 }
 
 func (a *Agent) walkTo(ctx context.Context, x, z int) bool {

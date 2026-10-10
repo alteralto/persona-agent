@@ -482,3 +482,22 @@ func TestSimLobbyHoldsStill(t *testing.T) {
 	r.waitFor("out of the lobby", 8*time.Second, func() bool { return strings.Contains(r.log.String(), "out of the lobby") })
 	r.waitFor("flight kit in the world", 6*time.Second, func() bool { return r.w.Has("tool", "creativeGive") })
 }
+
+// A player in sight but far, not a companion: the bot goes over, stops short of them, and does
+// not come again at once.
+func TestSimVisitsAFarPlayer(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+		c.ActivityEvery = 100 * time.Millisecond
+	})
+	r.w.AddPlayer("Steve", 90, 0)
+	r.ready()
+	r.waitFor("visit", 4*time.Second, func() bool { return strings.Contains(r.log.String(), "activity: visiting") })
+	r.waitFor("near Steve", 10*time.Second, func() bool { d := r.w.DistanceTo("Steve"); return d < 20 })
+	if d := r.w.DistanceTo("Steve"); d < 6 {
+		t.Errorf("came right up to the player: %.0f blocks", d)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if n := strings.Count(r.log.String(), "activity: visiting"); n != 1 {
+		t.Errorf("visited %d times in a row", n)
+	}
+}

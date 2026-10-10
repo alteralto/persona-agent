@@ -552,3 +552,41 @@ func (a *Agent) salute(ctx context.Context) bool {
 	a.lingerFor(15 * time.Second) // stay and watch it
 	return true
 }
+
+// seenPlayer is a player in sight (loaded by the client), not the bot and not another bot.
+type seenPlayer struct {
+	name       string
+	x, z, dist float64
+}
+
+func (a *Agent) visiblePlayers(ctx context.Context) []seenPlayer {
+	text, err := a.mc.Call(ctx, "getGameState", nil)
+	if err != nil {
+		return nil
+	}
+	var st struct {
+		Players []struct {
+			Name     string `json:"name"`
+			Pos      string `json:"pos"`
+			Distance any    `json:"distance"`
+		} `json:"players"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil {
+		return nil
+	}
+	var out []seenPlayer
+	for _, p := range st.Players {
+		if strings.EqualFold(p.Name, a.cfg.BotNick) ||
+			slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, p.Name) }) {
+			continue
+		}
+		pos, err := explore.ParsePos(p.Pos)
+		if err != nil {
+			continue
+		}
+		var d float64
+		fmt.Sscanf(fmt.Sprint(p.Distance), "%g", &d)
+		out = append(out, seenPlayer{name: p.Name, x: pos.X, z: pos.Z, dist: d})
+	}
+	return out
+}

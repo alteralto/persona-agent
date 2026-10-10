@@ -126,8 +126,12 @@ type Agent struct {
 	handHeld bool
 	// gameMode as the mod reports it; adventure is a server lobby (a login screen): the bot holds
 	// still there (lobbyHeld) until the server moves it into the real world.
-	gameMode        string
-	lobbyHeld       bool
+	gameMode  string
+	lobbyHeld bool
+	// Visits to players who are not companions: when each was last visited and greeted, so the
+	// bot comes over now and then without trailing anyone.
+	visited         map[string]time.Time
+	greeted         map[string]time.Time
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time
