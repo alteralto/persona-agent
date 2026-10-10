@@ -283,6 +283,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	var lastLine string
 	var lastAt time.Time
 	gameDown := false
+	var xaeroAt time.Time // when to put the finds on Xaero's maps, the game being closed
 	tick := 0
 	t := time.NewTicker(a.cfg.PollEvery)
 	defer t.Stop()
@@ -305,12 +306,16 @@ func (a *Agent) Run(ctx context.Context) error {
 			if !gameDown {
 				gameDown = true
 				a.log.Warn("game connection lost, waiting", "err", err)
+				xaeroAt = time.Now().Add(20 * time.Second) // after the game has saved its own and quit
+			}
+			if !xaeroAt.IsZero() && time.Now().After(xaeroAt) {
+				xaeroAt = time.Time{}
 				a.exportXaero() // the game is closed: Xaero will not write over the file now
 			}
 			continue
 		}
 		if gameDown {
-			gameDown = false
+			gameDown, xaeroAt = false, time.Time{}
 			a.log.Info("game connection back")
 			a.resetModState()
 			prev = cur // lines from before the restart are not new
