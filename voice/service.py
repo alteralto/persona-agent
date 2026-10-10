@@ -6,11 +6,15 @@ stop arriving; it is transcribed and posted to the Go agent.
 
 Speaking: the agent POSTs /say; Piper synthesizes and plays into "CABLE Input", which the game
 uses as its microphone.
+
+Avatar: GET /avatar is the character's face for an OBS Browser Source; it polls /avatar/state for
+the loudness of the voice being played (lip sync) and the mood the agent POSTs to /mood.
 """
 
 import argparse
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -169,6 +173,7 @@ class Speaker:
         self.device = device
         self.queue: "queue.Queue[str]" = queue.Queue()
         self.speaking = threading.Event()
+        self.level = 0.0  # loudness of what is playing now, 0..1, for the avatar's mouth
         threading.Thread(target=self._run, daemon=True).start()
 
     def say(self, text: str) -> None:
@@ -189,28 +194,72 @@ class Speaker:
                         first_ms = (time.perf_counter() - start) * 1000
                     audio = chunk.audio_int16_array
                     seconds += len(audio) / rate
-                    out.write(audio.reshape(-1, 1))
+                    # In 40 ms slices: each write blocks about as long as it plays, so the level
+                    # set before it follows the voice the stream hears.
+                    step = rate // 25
+                    for i in range(0, len(audio), step):
+                        piece = audio[i:i + step]
+                        rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
+                        self.level = min(1.0, rms / 5000.0)
+                        out.write(piece.reshape(-1, 1))
+            self.level = 0.0
             self.speaking.clear()
             log.info("speak (first sound %d ms, %.1fs audio): %s", first_ms or 0, seconds, text)
 
 
+AVATAR_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "avatar.html")
+MOODS = ("neutral", "happy", "scared", "grumpy")
+
+
+class Mood:
+    """The avatar's mood: set by the agent for a while, then back to neutral."""
+
+    def __init__(self):
+        self.name, self.until = "neutral", 0.0
+
+    def set(self, name: str, seconds: float) -> None:
+        self.name = name if name in MOODS else "neutral"
+        self.until = time.monotonic() + max(1.0, min(seconds, 600.0))
+
+    def now(self) -> str:
+        return self.name if time.monotonic() < self.until else "neutral"
+
+
 def serve(port: int, speaker: Speaker):
+    mood = Mood()
+
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path != "/say":
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            if self.path == "/say":
+                text = str(body.get("text", "")).strip()
+                if text:
+                    speaker.say(text)
+            elif self.path == "/mood":
+                mood.set(str(body.get("mood", "neutral")), float(body.get("seconds", 8)))
+            else:
                 self.send_error(404)
                 return
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            text = str(body.get("text", "")).strip()
-            if text:
-                speaker.say(text)
             self.send_response(204)
             self.end_headers()
 
         def do_GET(self):
-            self.send_response(200)
+            path = self.path.split("?", 1)[0]
+            if path == "/avatar":
+                with open(AVATAR_PAGE, "rb") as f:
+                    self.reply(200, "text/html; charset=utf-8", f.read())
+            elif path == "/avatar/state":
+                state = {"speaking": speaker.speaking.is_set(), "level": round(speaker.level, 3), "mood": mood.now()}
+                self.reply(200, "application/json", json.dumps(state).encode())
+            else:
+                self.reply(200, "application/json", b'{"status":"ok"}')
+
+        def reply(self, code: int, kind: str, data: bytes) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", kind)
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
+            self.wfile.write(data)
 
         def log_message(self, *args):
             pass

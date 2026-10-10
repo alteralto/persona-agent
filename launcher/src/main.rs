@@ -21,6 +21,7 @@ const BASH: &str = r"C:\Program Files\Git\bin\bash.exe";
 const PORT_MOD: u16 = 25350;
 const PORT_LAYA: u16 = 8090;
 const PORT_VOICE: u16 = 8091;
+const PORT_AGENT: u16 = 8092; // the agent's /voice endpoint: up while the agent runs
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -90,11 +91,18 @@ impl Pult {
         {
             let shared = shared.clone();
             let ctx = cc.egui_ctx.clone();
-            thread::spawn(move || loop {
-                let st = poll_status();
-                shared.lock().unwrap().status = st;
-                ctx.request_repaint();
-                thread::sleep(Duration::from_millis(1500));
+            // Ports every 1.5 s cost nothing; the game window (a process listing) every 7.5 s.
+            thread::spawn(move || {
+                let mut game = false;
+                for n in 0u64.. {
+                    if n % 5 == 0 {
+                        game = game_running();
+                    }
+                    let st = poll_status(game);
+                    shared.lock().unwrap().status = st;
+                    ctx.request_repaint();
+                    thread::sleep(Duration::from_millis(1500));
+                }
             });
         }
         let settings = load_settings(&root);
@@ -121,7 +129,7 @@ impl Pult {
         let (shared, root, settings, ctx) = (self.shared.clone(), self.root.clone(), self.settings.clone(), ctx.clone());
         thread::spawn(move || {
             let note = job(&root, &settings);
-            let st = poll_status();
+            let st = poll_status(game_running());
             let mut sh = shared.lock().unwrap();
             sh.busy = None;
             sh.note = note;
@@ -449,32 +457,31 @@ fn stop_voice(_: &Path, _: &Settings) -> String {
 
 // ---- status ----
 
-fn poll_status() -> Status {
-    let procs = process_list();
+fn poll_status(game: bool) -> Status {
+    let modon = listening(PORT_MOD);
     Status {
-        // The launcher is a javaw too; the game runs on its own Java runtime.
-        game: procs.iter().any(|p| p.starts_with("javaw") && p.contains("runtime")),
-        modon: listening(PORT_MOD),
+        game: game || modon,
+        modon,
         laya: listening(PORT_LAYA),
         voice: listening(PORT_VOICE),
-        agent: procs.iter().any(|p| p.starts_with("pyhtun")),
+        agent: agent_running(),
         checked: true,
     }
 }
 
-/// Process names with their paths, lower case ("javaw f:\...\java-runtime-delta\...").
-fn process_list() -> Vec<String> {
-    let script = "Get-Process javaw,pyhtun -ErrorAction SilentlyContinue | ForEach-Object { $_.Name + ' ' + $_.Path }";
-    Command::new("powershell")
-        .args(["-NoProfile", "-Command", script])
+/// The game, not the launcher (both are javaw): the one with a "Minecraft..." window. tasklist,
+/// not PowerShell -- a PowerShell start every 1.5 s cost the laptop CPU the game needed.
+fn game_running() -> bool {
+    Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq javaw.exe", "/FI", "WINDOWTITLE eq Minecraft*", "/NH"])
         .creation_flags(NO_WINDOW)
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().lines().map(str::to_string).collect())
-        .unwrap_or_default()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains("javaw"))
+        .unwrap_or(false)
 }
 
 fn agent_running() -> bool {
-    process_list().iter().any(|p| p.starts_with("pyhtun"))
+    listening(PORT_AGENT)
 }
 
 fn listening(port: u16) -> bool {

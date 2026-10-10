@@ -1,0 +1,271 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Пыхтун</title>
+<!--
+  The character's avatar for an OBS Browser Source (http://127.0.0.1:8091/avatar, 600x760,
+  transparent). Drawn by hand in SVG: a round-faced hobbit, the wizard's ground technician, with
+  firework goggles pushed up on his forehead and a smudge of soot on his cheek.
+
+  Alive on its own (breathing, a slow sway, blinking) and driven by the voice service:
+  /avatar/state gives {speaking, level, mood}; the mouth follows the loudness of the voice
+  actually being played, the face follows the mood the agent sets (happy, scared, grumpy).
+  ?demo=1 talks and changes moods by itself, for setting the scene up without the agent.
+  ?plate=0 hides the name plate. ?mood=happy|scared|grumpy and ?talk=0..1 hold a pose (previews).
+-->
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  svg { display: block; width: 100vw; height: 100vh; }
+  .eye, .mood-part, #mouthOpen, #mouthClosed { transform-box: fill-box; transform-origin: center; }
+  .mood-part { transition: opacity .25s ease; }
+  #browL, #browR { transition: transform .25s ease; transform-box: fill-box; transform-origin: center; }
+  #cheeks { transition: opacity .4s ease; }
+</style>
+<svg id="pyh" viewBox="0 0 600 760" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="skin" cx="45%" cy="38%" r="70%">
+      <stop offset="0" stop-color="#f8d4b0"/><stop offset=".7" stop-color="#efbd92"/><stop offset="1" stop-color="#e2a57b"/>
+    </radialGradient>
+    <linearGradient id="vest" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d8f43"/><stop offset="1" stop-color="#3a6128"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbf4e4"/><stop offset="1" stop-color="#e6dac0"/>
+    </linearGradient>
+    <radialGradient id="hair" cx="50%" cy="40%" r="60%">
+      <stop offset="0" stop-color="#7a4f2c"/><stop offset="1" stop-color="#4b2d18"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1d57a"/><stop offset=".55" stop-color="#c99a2e"/><stop offset="1" stop-color="#8f6a17"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="40%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#d9f2ea"/><stop offset=".6" stop-color="#86bfb1"/><stop offset="1" stop-color="#4f8a7c"/>
+    </radialGradient>
+    <radialGradient id="cheek" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#f07f7a" stop-opacity=".75"/><stop offset="1" stop-color="#f07f7a" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.2"/></filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+
+  <g id="all" filter="url(#shadow)">
+    <!-- Body: breathes. -->
+    <g id="body"><g transform="translate(0 -46)">
+      <path d="M60 810 C 82 640 168 572 300 566 C 432 572 518 640 540 810 Z" fill="url(#shirt)" stroke="#cbb994" stroke-width="3"/>
+      <!-- waistcoat panels, open in the middle over the shirt -->
+      <path d="M104 810 C 124 668 178 612 252 596 L 290 810 Z" fill="url(#vest)" stroke="#2f4f20" stroke-width="3"/>
+      <path d="M496 810 C 476 668 422 612 348 596 L 310 810 Z" fill="url(#vest)" stroke="#2f4f20" stroke-width="3"/>
+      <!-- a pocket with a rocket sticking out: the technician's trade -->
+      <path d="M392 676 L 452 670 L 456 716 L 398 720 Z" fill="#33561f" stroke="#2a4519" stroke-width="2"/>
+      <g transform="translate(420 646) rotate(12)">
+        <rect x="-7" y="0" width="14" height="40" rx="3" fill="#c8402e" stroke="#7d2116" stroke-width="2"/>
+        <rect x="-7" y="10" width="14" height="5" fill="#f3e3c0"/>
+        <path d="M-8 1 L 0 -14 L 8 1 Z" fill="#e6d3a8" stroke="#8f7a52" stroke-width="2"/>
+      </g>
+      <!-- buttons -->
+      <circle cx="268" cy="648" r="7" fill="url(#brass)" stroke="#7a5a12" stroke-width="1.5"/>
+      <circle cx="274" cy="700" r="7" fill="url(#brass)" stroke="#7a5a12" stroke-width="1.5"/>
+      <!-- neck and collar -->
+      <path d="M258 500 L 342 500 L 348 562 Q 300 590 252 562 Z" fill="#e8ad84"/>
+      <path d="M262 500 Q 300 520 338 500" stroke="#d39672" stroke-width="5" fill="none" opacity=".6"/>
+      <path d="M250 560 L 300 606 L 266 620 L 236 584 Z" fill="#fffaf0" stroke="#d6c6a2" stroke-width="2.5"/>
+      <path d="M350 560 L 300 606 L 334 620 L 364 584 Z" fill="#fffaf0" stroke="#d6c6a2" stroke-width="2.5"/>
+    </g></g>
+
+    <!-- Head: sways a little. -->
+    <g id="head">
+      <!-- hair at the back -->
+      <g fill="url(#hair)">
+        <circle cx="168" cy="268" r="58"/><circle cx="432" cy="268" r="58"/>
+        <circle cx="178" cy="356" r="42"/><circle cx="422" cy="356" r="42"/>
+      </g>
+      <!-- ears: a hobbit's, a little pointed -->
+      <path d="M160 318 C 118 296 104 246 122 226 C 150 250 170 284 178 318 Z" fill="url(#skin)" stroke="#c98d66" stroke-width="3"/>
+      <path d="M150 300 C 132 284 126 262 132 250 C 146 266 156 284 162 302 Z" fill="#dc9a74" opacity=".7"/>
+      <path d="M440 318 C 482 296 496 246 478 226 C 450 250 430 284 422 318 Z" fill="url(#skin)" stroke="#c98d66" stroke-width="3"/>
+      <path d="M450 300 C 468 284 474 262 468 250 C 454 266 444 284 438 302 Z" fill="#dc9a74" opacity=".7"/>
+      <!-- face -->
+      <ellipse cx="300" cy="318" rx="148" ry="160" fill="url(#skin)" stroke="#c98d66" stroke-width="3"/>
+      <!-- soot smudge from the last firework -->
+      <ellipse cx="392" cy="352" rx="17" ry="8" fill="#3d3a38" opacity=".32" transform="rotate(-18 392 352)" filter="url(#soft)"/>
+      <ellipse cx="404" cy="343" rx="6" ry="3" fill="#3d3a38" opacity=".25" filter="url(#soft)"/>
+      <!-- cheeks -->
+      <g id="cheeks" opacity=".55">
+        <ellipse cx="222" cy="382" rx="36" ry="22" fill="url(#cheek)"/>
+        <ellipse cx="378" cy="382" rx="36" ry="22" fill="url(#cheek)"/>
+      </g>
+      <!-- curls on top -->
+      <g fill="url(#hair)" stroke="#3d2412" stroke-width="2">
+        <circle cx="196" cy="196" r="40"/><circle cx="246" cy="168" r="44"/><circle cx="302" cy="158" r="46"/>
+        <circle cx="356" cy="168" r="44"/><circle cx="404" cy="196" r="40"/>
+        <circle cx="166" cy="234" r="30"/><circle cx="434" cy="234" r="30"/>
+        <circle cx="226" cy="206" r="26"/><circle cx="380" cy="206" r="26"/>
+      </g>
+      <g fill="none" stroke="#8a5a33" stroke-width="3" stroke-linecap="round" opacity=".7">
+        <path d="M232 160 q 14 -12 28 0"/><path d="M290 150 q 14 -12 28 0"/><path d="M342 160 q 14 -12 28 0"/>
+        <path d="M184 196 q 12 -10 24 0"/><path d="M392 196 q 12 -10 24 0"/>
+      </g>
+      <!-- goggles strap and goggles, pushed up on the forehead -->
+      <path d="M150 236 Q 300 196 450 236 L 452 258 Q 300 218 148 258 Z" fill="#6e4524" stroke="#4a2c14" stroke-width="2.5"/>
+      <g>
+        <circle cx="252" cy="222" r="38" fill="url(#brass)" stroke="#6f5110" stroke-width="3"/>
+        <circle cx="252" cy="222" r="27" fill="url(#lens)" stroke="#3c6a5f" stroke-width="2"/>
+        <path d="M238 210 q 8 -8 18 -6" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".8"/>
+        <circle cx="348" cy="222" r="38" fill="url(#brass)" stroke="#6f5110" stroke-width="3"/>
+        <circle cx="348" cy="222" r="27" fill="url(#lens)" stroke="#3c6a5f" stroke-width="2"/>
+        <path d="M334 210 q 8 -8 18 -6" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".8"/>
+        <rect x="288" y="214" width="24" height="12" rx="4" fill="url(#brass)" stroke="#6f5110" stroke-width="2"/>
+      </g>
+      <!-- eyebrows: bushy -->
+      <path id="browL" d="M212 282 Q 240 262 274 274" stroke="#4b2d18" stroke-width="11" stroke-linecap="round" fill="none"/>
+      <path id="browR" d="M326 274 Q 360 262 388 282" stroke="#4b2d18" stroke-width="11" stroke-linecap="round" fill="none"/>
+      <!-- eyes: open ones blink; happy ones are arcs -->
+      <g id="eyesOpen" class="mood-part">
+        <g class="eye" id="eyeL">
+          <ellipse cx="246" cy="318" rx="25" ry="29" fill="#fff" stroke="#6b4a33" stroke-width="2.5"/>
+          <circle class="iris" cx="249" cy="322" r="15" fill="#6b4a2b"/>
+          <circle class="pupil" cx="249" cy="322" r="7.5" fill="#1d130c"/>
+          <circle cx="255" cy="314" r="4.5" fill="#fff"/>
+        </g>
+        <g class="eye" id="eyeR">
+          <ellipse cx="354" cy="318" rx="25" ry="29" fill="#fff" stroke="#6b4a33" stroke-width="2.5"/>
+          <circle class="iris" cx="351" cy="322" r="15" fill="#6b4a2b"/>
+          <circle class="pupil" cx="351" cy="322" r="7.5" fill="#1d130c"/>
+          <circle cx="357" cy="314" r="4.5" fill="#fff"/>
+        </g>
+      </g>
+      <g id="eyesHappy" class="mood-part" opacity="0" fill="none" stroke="#4b2d18" stroke-width="7" stroke-linecap="round">
+        <path d="M222 324 Q 246 298 270 324"/><path d="M330 324 Q 354 298 378 324"/>
+      </g>
+      <!-- nose: a round button -->
+      <ellipse cx="300" cy="362" rx="24" ry="19" fill="#e9a17b" stroke="#c98463" stroke-width="2"/>
+      <ellipse cx="292" cy="355" rx="7" ry="5" fill="#fbd9bf" opacity=".8"/>
+      <!-- mouth: a smile when quiet, open by the loudness of the voice -->
+      <path id="mouthClosed" d="M266 414 Q 300 438 334 414" stroke="#7a3b2a" stroke-width="6" stroke-linecap="round" fill="none"/>
+      <g id="mouthOpen" opacity="0">
+        <ellipse id="mouthHole" cx="300" cy="422" rx="26" ry="12" fill="#5a1f1a" stroke="#7a3b2a" stroke-width="4"/>
+        <ellipse id="tongue" cx="300" cy="430" rx="15" ry="6" fill="#d9666a"/>
+        <rect id="teeth" x="286" y="411" width="28" height="7" rx="3" fill="#fffdf6"/>
+      </g>
+      <!-- scared: a drop of sweat -->
+      <path id="sweat" class="mood-part" opacity="0" d="M432 262 C 444 280 450 292 444 302 C 438 312 424 310 422 298 C 420 288 426 276 432 262 Z" fill="#a6daf4" stroke="#5aa6cf" stroke-width="2"/>
+      <!-- grumpy: a little steam -->
+      <g id="steam" class="mood-part" opacity="0" fill="none" stroke="#c9c2b8" stroke-width="6" stroke-linecap="round">
+        <path d="M120 200 q -16 -18 0 -36 q 16 -18 0 -36"/><path d="M480 200 q 16 -18 0 -36 q -16 -18 0 -36"/>
+      </g>
+    </g>
+
+    <!-- Name plate. -->
+    <g id="plate" transform="translate(300 724)">
+      <rect x="-118" y="-30" width="236" height="56" rx="16" fill="#2f4f20" stroke="#c99a2e" stroke-width="4"/>
+      <text x="0" y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="34" fill="#f6ead0" font-weight="bold">Пыхтун</text>
+      <g transform="translate(-92 -2)" fill="#f1d57a"><path d="M0 -10 L3 -3 L10 0 L3 3 L0 10 L-3 3 L-10 0 L-3 -3 Z"/></g>
+      <g transform="translate(92 -2)" fill="#f1d57a"><path d="M0 -10 L3 -3 L10 0 L3 3 L0 10 L-3 3 L-10 0 L-3 -3 Z"/></g>
+    </g>
+  </g>
+</svg>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const demo = q.get("demo") === "1";
+  if (q.get("plate") === "0") document.getElementById("plate").style.display = "none";
+  const still = q.has("mood") || q.has("talk");
+  if (still) document.querySelectorAll("*").forEach(el => el.style.transition = "none");
+  const $ = id => document.getElementById(id);
+  const body = $("body"), head = $("head"), eyes = [$("eyeL"), $("eyeR")];
+  const mouthOpen = $("mouthOpen"), mouthClosed = $("mouthClosed"), hole = $("mouthHole"), tongue = $("tongue"), teeth = $("teeth");
+  const pupils = [...document.querySelectorAll(".pupil")];
+
+  let target = 0, level = 0, mood = "neutral", speaking = false;
+  let nextBlink = performance.now() + 1500, blinkUntil = 0;
+
+  // Moods: eyebrows, eyes, extras.
+  const MOODS = {
+    // mouth: the closed mouth -- a smile, a wide grin, a wobbly worried line, a frown
+    neutral: { brows: [0, 0, 0], happy: 0, sweat: 0, steam: 0, cheeks: .55, pupil: 7.5,
+               mouth: "M266 414 Q 300 438 334 414" },
+    happy:   { brows: [-6, -8, 0], happy: 1, sweat: 0, steam: 0, cheeks: .95, pupil: 7.5,
+               mouth: "M256 408 Q 300 452 344 408" },
+    scared:  { brows: [-18, 0, 14], happy: 0, sweat: 1, steam: 0, cheeks: .2, pupil: 4.5,
+               mouth: "M270 424 q 10 -10 20 0 q 10 10 20 0 q 10 -10 20 0" },
+    grumpy:  { brows: [10, 0, -16], happy: 0, sweat: 0, steam: 1, cheeks: .45, pupil: 7.5,
+               mouth: "M272 428 Q 300 412 328 428" },
+  };
+  function setMood(m) {
+    if (!MOODS[m]) m = "neutral";
+    mood = m;
+    const s = MOODS[m];
+    // [lift (negative = up), extra lift of the outer ends, inward tilt in degrees]
+    $("browL").style.transform = `translateY(${s.brows[0]}px) rotate(${s.brows[2]}deg)`;
+    $("browR").style.transform = `translateY(${s.brows[0]}px) rotate(${-s.brows[2]}deg)`;
+    $("eyesOpen").style.opacity = 1 - s.happy;
+    $("eyesHappy").style.opacity = s.happy;
+    $("sweat").style.opacity = s.sweat;
+    $("steam").style.opacity = s.steam;
+    $("cheeks").style.opacity = s.cheeks;
+    pupils.forEach(p => p.setAttribute("r", s.pupil));
+    mouthClosed.setAttribute("d", s.mouth);
+  }
+  setMood(q.get("mood") || "neutral");
+  if (q.has("talk")) target = +q.get("talk");
+
+  async function poll() {
+    try {
+      const r = await fetch("/avatar/state", { cache: "no-store" });
+      const st = await r.json();
+      speaking = !!st.speaking;
+      target = Math.max(0, Math.min(1, +st.level || 0));
+      if (st.mood !== mood) setMood(st.mood);
+    } catch (e) {
+      target = 0; // the voice service is down: just idle
+    }
+    setTimeout(poll, 50);
+  }
+
+  // ?demo=1: babble and change moods, to set the scene up in OBS.
+  let demoUntil = 0;
+  function demoTick(t) {
+    const talking = Math.floor(t / 2600) % 2 === 0;
+    target = talking ? Math.max(0, Math.sin(t / 70) * .5 + Math.sin(t / 37) * .35 + .25) : 0;
+    if (t > demoUntil) {
+      const ms = ["neutral", "happy", "scared", "grumpy"];
+      setMood(ms[(ms.indexOf(mood) + 1) % ms.length]);
+      demoUntil = t + 4000;
+    }
+  }
+
+  function frame(t) {
+    if (demo) demoTick(t);
+    // Mouth: opens fast, closes a little slower, like a jaw.
+    level += (target - level) * (target > level ? .55 : .25);
+    const open = level > .06;
+    mouthOpen.style.opacity = open ? 1 : 0;
+    mouthClosed.style.opacity = open ? 0 : 1;
+    if (open) {
+      const ry = 6 + level * 26, rx = 22 + level * 8;
+      hole.setAttribute("ry", ry); hole.setAttribute("rx", rx);
+      hole.setAttribute("cy", 416 + ry * .45);
+      tongue.setAttribute("cy", 416 + ry * 1.1); tongue.setAttribute("ry", 3 + ry * .25);
+      teeth.setAttribute("y", 416 - ry * .5 + 2);
+    }
+    // Breathing and a slow sway; a nod while talking.
+    const breathe = Math.sin(t / 900) * 2.2;
+    const sway = Math.sin(t / 2300) * 1.6 + (speaking || demo ? Math.sin(t / 260) * level * 2.5 : 0);
+    const bob = breathe * .6 - level * 3;
+    body.setAttribute("transform", `translate(0 ${breathe.toFixed(2)})`);
+    head.setAttribute("transform", `translate(0 ${bob.toFixed(2)}) rotate(${sway.toFixed(2)} 300 480)`);
+    // Blink every 2.5..6 s, now and then twice.
+    if (t > nextBlink) {
+      blinkUntil = t + 130;
+      nextBlink = t + (Math.random() < .2 ? 260 : 2500 + Math.random() * 3500);
+    }
+    const shut = t < blinkUntil ? .08 : 1;
+    eyes.forEach(e => e.style.transform = `scaleY(${shut})`);
+    requestAnimationFrame(frame);
+  }
+
+  if (!demo && !still) poll();
+  requestAnimationFrame(frame);
+})();
+</script>
