@@ -501,3 +501,15 @@ func TestSimVisitsAFarPlayer(t *testing.T) {
 		t.Errorf("visited %d times in a row", n)
 	}
 }
+
+// "Покажи трюки" flies with figures; "облети окрестности" flies a route home.
+func TestSimFlightStylesOnRequest(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, покажи трюки!")
+	r.waitFor("figures", 4*time.Second, func() bool { return r.w.Has("tool", `"tricks":3`) })
+	r.waitFor("landing", 8*time.Second, func() bool { return r.w.Has("land", "") })
+	r.w.Say("Alex", "Пыхтун, облети окрестности")
+	r.waitFor("route", 6*time.Second, func() bool { return r.w.Has("fly", "route") })
+}

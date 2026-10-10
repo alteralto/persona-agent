@@ -366,7 +366,7 @@ func (w *World) Handler() http.Handler {
 }
 
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
-	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true,
+	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true, "flyRoute": true,
 	"salute": true, "saluteStatus": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
@@ -500,6 +500,16 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		w.flown++
 		w.logLocked("fly", fmt.Sprintf("%d %d", int(w.flyTarget[0]), int(w.flyTarget[1])))
 		return map[string]any{"phase": "equip"}, false
+	case "flyRoute":
+		pts := strings.Split(fmt.Sprint(args["points"]), ";")
+		var lx, lz int
+		fmt.Sscanf(pts[len(pts)-1], "%d,%d", &lx, &lz)
+		w.goal, w.follow = nil, ""
+		w.flyTarget = [2]float64{float64(lx), float64(lz)}
+		w.flyPhase, w.flyReason, w.flyAt = "takeoff", "", time.Now()
+		w.flown++
+		w.logLocked("fly", fmt.Sprintf("route %d %d %d", len(pts), lx, lz))
+		return map[string]any{"phase": "equip", "waypoint": fmt.Sprintf("1/%d", len(pts))}, false
 	case "flyFollow":
 		nick, _ := args["nick"].(string)
 		if w.players[nick] == nil {

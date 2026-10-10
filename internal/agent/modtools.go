@@ -218,26 +218,79 @@ func (a *Agent) creativeGive(ctx context.Context, item string, count int) bool {
 // and fireworks from the creative inventory (once per run). Returns false when flight is not
 // possible, and the caller walks instead.
 func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
-	return a.startFlightLow(ctx, x, z, false)
+	return a.startFlightOpts(ctx, x, z, flightOpts{})
 }
 
-// startFlightLow takes off for x, z; low is a low-level flight (бреющий) a few blocks over the
-// ground. An older fork jar ignores it and flies at the usual height.
-func (a *Agent) startFlightLow(ctx context.Context, x, z int, low bool) bool {
+// Flight styles: how a show flight is flown.
+const (
+	styleNormal = "normal"
+	styleLow    = "low"    // бреющий: a few blocks over the ground
+	styleTricks = "tricks" // пилотаж: figures on the way
+	styleRoute  = "route"  // облёт: through several places without landing
+)
+
+// flightOpts: low-level, and how many figures on the way. An older fork jar ignores both and
+// flies the usual way.
+type flightOpts struct {
+	low    bool
+	tricks int
+}
+
+func (o flightOpts) args(m map[string]any) map[string]any {
+	if o.low {
+		m["low"] = true
+	}
+	if o.tricks > 0 {
+		m["tricks"] = o.tricks
+	}
+	return m
+}
+
+// startFlightOpts takes off for x, z.
+func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) bool {
 	y := 70
 	if a.places != nil && a.places.Home != nil {
 		y = int(a.places.Home.Y)
 	}
-	args := map[string]any{"x": x, "y": y, "z": z}
-	if low {
-		args["low"] = true
-	}
-	if !a.takeOff(ctx, "flyTo", args) {
+	if !a.takeOff(ctx, "flyTo", o.args(map[string]any{"x": x, "y": y, "z": z})) {
 		return false
 	}
 	a.flyX, a.flyZ = x, z
-	a.log.Info("flight: taking off", "x", x, "z", z, "low", low)
+	a.log.Info("flight: taking off", "x", x, "z", z, "low", o.low, "tricks", o.tricks)
 	return true
+}
+
+// startRoute flies through the points without landing and lands at the last (fork flyRoute).
+func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool {
+	parts := make([]string, len(pts))
+	for i, p := range pts {
+		parts[i] = fmt.Sprintf("%d,%d", p[0], p[1])
+	}
+	if !a.takeOff(ctx, "flyRoute", o.args(map[string]any{"points": strings.Join(parts, ";")})) {
+		return false
+	}
+	last := pts[len(pts)-1]
+	a.flyX, a.flyZ = last[0], last[1]
+	a.log.Info("flight: route", "points", strings.Join(parts, ";"))
+	return true
+}
+
+// pickStyle: FLIGHT_STYLE when set, else a mix -- mostly plain flights, now and then the others.
+func (a *Agent) pickStyle() string {
+	switch a.cfg.FlightStyle {
+	case styleNormal, styleLow, styleTricks, styleRoute:
+		return a.cfg.FlightStyle
+	}
+	switch r := rand.IntN(10); {
+	case r < 4:
+		return styleNormal
+	case r < 6:
+		return styleLow
+	case r < 8:
+		return styleTricks
+	default:
+		return styleRoute
+	}
 }
 
 // startWingman takes off to fly beside a player who is flying (fork's flyFollow); after they

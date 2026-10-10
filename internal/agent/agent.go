@@ -68,6 +68,8 @@ type Config struct {
 	// AllowBreak lets the pathfinder mine its way through natural blocks (grass, sand, leaves).
 	// Off by default: on a shared server those are someone's build too.
 	AllowBreak bool
+	// FlightStyle fixes how show flights are flown: normal, low, tricks, route; empty mixes them.
+	FlightStyle string
 }
 
 type Agent struct {
@@ -555,13 +557,18 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 	case ActSalute:
 		a.salute(ctx, 4+rand.IntN(2)) // asked for: a short show
 		return
-	case ActFly, ActFlyLow:
+	case ActFly, ActFlyLow, ActFlyTricks, ActFlyRoute:
 		a.trip, a.following = nil, ""
 		// "Полетели вместе" from someone far away: fly to them, not off somewhere else.
-		if _, _, _, d, ok := a.playerPos(ctx, nick); ok && d > a.flyAbove() && a.flyToPlayer(ctx, nick) {
-			return
+		// A style asked for (low, figures, a tour) is a show, not "come to me".
+		if action == ActFly {
+			if _, _, _, d, ok := a.playerPos(ctx, nick); ok && d > a.flyAbove() && a.flyToPlayer(ctx, nick) {
+				return
+			}
 		}
-		if !a.flyShowOff(ctx, action == ActFlyLow) {
+		style := map[string]string{ActFly: styleNormal, ActFlyLow: styleLow, ActFlyTricks: styleTricks,
+			ActFlyRoute: styleRoute}[action]
+		if !a.flyShowOff(ctx, style) {
 			a.log.Info("fly skipped: no flight available")
 		}
 		return

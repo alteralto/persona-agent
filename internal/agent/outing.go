@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -125,7 +126,7 @@ func (a *Agent) flyAbove() float64 {
 	return 60
 }
 
-func (a *Agent) flyShowOff(ctx context.Context, low bool) bool {
+func (a *Agent) flyShowOff(ctx context.Context, style string) bool {
 	if !a.havePos {
 		return false
 	}
@@ -135,27 +136,37 @@ func (a *Agent) flyShowOff(ctx context.Context, low bool) bool {
 	if a.places != nil && a.places.Home != nil {
 		cx, cz = a.places.Home.X, a.places.Home.Z
 	}
-	angle := rand.Float64() * 2 * math.Pi
-	x, z := int(cx+80*math.Cos(angle)), int(cz+80*math.Sin(angle))
-	if math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 60 {
-		x, z = int(cx), int(cz)
+	fromHome := math.Hypot(a.pos.X-cx, a.pos.Z-cz)
+	opts := flightOpts{low: style == styleLow}
+	if style == styleTricks {
+		opts.tricks = 3
 	}
-	// Flight testing (FLIGHT_SHARE): long legs, out 120-350 blocks from home and back home.
+	if style == styleRoute {
+		if pts := a.showRoute(cx, cz); len(pts) >= 2 {
+			a.log.Info("flight show", "style", style, "points", len(pts))
+			return a.startRoute(ctx, pts, opts)
+		}
+		style = styleNormal // nowhere to go round yet
+	}
+	angle := rand.Float64() * 2 * math.Pi
+	// Figures need room: a long leg, out 450-600 blocks, or home from as far.
+	out := 80.0
+	if style == styleTricks {
+		out = 450 + rand.Float64()*150
+	} else if a.cfg.FlightShare > 0 {
+		out = 120 + rand.Float64()*230 // flight testing: long legs
+	}
+	x, z := int(cx+out*math.Cos(angle)), int(cz+out*math.Sin(angle))
+	home := fromHome > 60
 	if a.cfg.FlightShare > 0 && a.places != nil && a.places.Home != nil {
 		// Strictly out, home, out, home: by distance alone the bot, exploring after each landing,
 		// was always "far from home" and flew nothing but home legs.
-		home := a.testLegOut && math.Hypot(a.pos.X-cx, a.pos.Z-cz) > 40
-		if home {
-			x, z = int(cx), int(cz)
-		} else {
-			r := 120 + rand.Float64()*230
-			x, z = int(cx+r*math.Cos(angle)), int(cz+r*math.Sin(angle))
-		}
+		home = a.testLegOut && fromHome > 40
 		a.testLegOut = !home
-		a.log.Info("flight test leg", "x", x, "z", z, "home", home, "low", low)
-		return a.startFlightLow(ctx, x, z, low)
 	}
-	if a.places != nil {
+	if home {
+		x, z = int(cx), int(cz)
+	} else if style != styleTricks && a.cfg.FlightShare == 0 && a.places != nil {
 		var far []explore.Place
 		for _, p := range a.places.List {
 			if d := math.Hypot(float64(p.X)-a.pos.X, float64(p.Z)-a.pos.Z); d > 60 && d < 200 {
@@ -167,5 +178,43 @@ func (a *Agent) flyShowOff(ctx context.Context, low bool) bool {
 			x, z = p.X, p.Z
 		}
 	}
-	return a.startFlightLow(ctx, x, z, low)
+	a.log.Info("flight show", "style", style, "x", x, "z", z, "home", home)
+	return a.startFlightOpts(ctx, x, z, opts)
+}
+
+// showRoute is a tour for a route flight: up to four remembered places 60-250 blocks from home
+// in order round home, or a patrol of six points on a circle round it; home at the end.
+func (a *Agent) showRoute(cx, cz float64) [][2]int {
+	type pt struct {
+		x, z int
+		ang  float64
+	}
+	var tour []pt
+	if a.places != nil {
+		for _, p := range a.places.List {
+			d := math.Hypot(float64(p.X)-cx, float64(p.Z)-cz)
+			if d > 60 && d < 250 {
+				tour = append(tour, pt{p.X, p.Z, math.Atan2(float64(p.Z)-cz, float64(p.X)-cx)})
+			}
+		}
+	}
+	if len(tour) > 4 {
+		rand.Shuffle(len(tour), func(i, j int) { tour[i], tour[j] = tour[j], tour[i] })
+		tour = tour[:4]
+	}
+	if len(tour) < 2 { // a patrol round home instead
+		tour = tour[:0]
+		start := rand.Float64() * 2 * math.Pi
+		for i := 0; i < 6; i++ {
+			ang := start + float64(i)*math.Pi/3
+			tour = append(tour, pt{int(cx + 110*math.Cos(ang)), int(cz + 110*math.Sin(ang)), ang})
+		}
+	} else {
+		slices.SortFunc(tour, func(p, q pt) int { return cmp.Compare(p.ang, q.ang) })
+	}
+	out := make([][2]int, 0, len(tour)+1)
+	for _, p := range tour {
+		out = append(out, [2]int{p.x, p.z})
+	}
+	return append(out, [2]int{int(cx), int(cz)})
 }

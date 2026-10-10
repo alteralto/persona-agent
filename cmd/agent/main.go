@@ -64,6 +64,7 @@ func main() {
 		OthersNames:     splitList(env("OTHERS_NAMES", "")),
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),
 		AllowBreak:      env("ALLOW_BREAK", "false") == "true",
+		FlightStyle:     env("FLIGHT_STYLE", ""),
 	}
 	llm := giga.New(creds, env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"), env("GIGACHAT_MODEL", "GigaChat-2"),
 		env("GIGACHAT_VERIFY_SSL", "false") == "true")

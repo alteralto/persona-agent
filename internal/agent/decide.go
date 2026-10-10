@@ -13,16 +13,18 @@ import (
 
 // Actions Laya chooses from. Keep the list short: accuracy drops as options grow.
 const (
-	ActWait   = "wait"
-	ActFollow = "follow"
-	ActStop   = "stop"
-	ActDefend = "defend"
-	ActSupply = "supply"
-	ActLead   = "lead"
-	ActFly    = "fly"    // rule-only: not offered to Laya, keeps her option list short
-	ActFlyTo  = "flyto"  // rule-only: fly to a player
-	ActFlyLow = "flylow" // rule-only: a low-level flight (бреющий), a few blocks over the ground
-	ActSalute = "salute" // rule-only: a fireworks show from the ground
+	ActWait      = "wait"
+	ActFollow    = "follow"
+	ActStop      = "stop"
+	ActDefend    = "defend"
+	ActSupply    = "supply"
+	ActLead      = "lead"
+	ActFly       = "fly"       // rule-only: not offered to Laya, keeps her option list short
+	ActFlyTo     = "flyto"     // rule-only: fly to a player
+	ActFlyLow    = "flylow"    // rule-only: a low-level flight (бреющий), a few blocks over the ground
+	ActSalute    = "salute"    // rule-only: a fireworks show from the ground
+	ActFlyTricks = "flytricks" // rule-only: a flight with aerobatic figures
+	ActFlyRoute  = "flyroute"  // rule-only: a tour round places without landing
 )
 
 const (
@@ -171,14 +173,16 @@ var leadRule = regexp.MustCompile(`(?i)(веди|проводи|отведи|п�
 // verbs; everything else is Laya's call. Go's  is ASCII-only, so words are matched as
 // substrings with care.
 var (
-	flyToRule  = regexp.MustCompile(`(?i)(прилет(ай|и)|лети\s+(ко мне|к нам|сюда|к\s+[^\s,.!?]+))`)
-	flyRule    = regexp.MustCompile(`(?i)(полетели|полетаем|взлетай|взлетаем|летим|на элитрах)`)
-	flyLowRule = regexp.MustCompile(`(?i)(бреющ|(пролети|лети|летай|полетай|полетели)\s+(пониже|низко|над\s+самой\s+землёй))`)
-	saluteRule = regexp.MustCompile(`(?i)(салют|(запусти|устрой|покажи|пусти)\s+фейерверк|фейерверк(и|ов)?\s+(запусти|покажи|давай))`)
-	supplyRule = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
-	defendRule = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
-	stopRule   = regexp.MustCompile(`(?i)(^|пыхтун[,! ]+)(стой|замри|подожди|постой)|подожд(и|ёте|ете) (меня|со мной)`)
-	followRule = regexp.MustCompile(`(?i)(подойди|вернись|иди ко мне|иди сюда|пошли со мной|пойд[её]м со мной|за мной)`)
+	flyToRule     = regexp.MustCompile(`(?i)(прилет(ай|и)|лети\s+(ко мне|к нам|сюда|к\s+[^\s,.!?]+))`)
+	flyRule       = regexp.MustCompile(`(?i)(полетели|полетаем|взлетай|взлетаем|летим|на элитрах)`)
+	flyTricksRule = regexp.MustCompile(`(?i)(трюк|пилотаж|бочк[уа]|фигур[уы]\s+в\s+небе|покажи\s+фигур|петл[юя])`)
+	flyRouteRule  = regexp.MustCompile(`(?i)(облет|облёт|облети|патрул|покажи\s+окрестност\S*\s+с\s+(воздуха|неба))`)
+	flyLowRule    = regexp.MustCompile(`(?i)(бреющ|(пролети|лети|летай|полетай|полетели)\s+(пониже|низко|над\s+самой\s+землёй))`)
+	saluteRule    = regexp.MustCompile(`(?i)(салют|(запусти|устрой|покажи|пусти)\s+фейерверк|фейерверк(и|ов)?\s+(запусти|покажи|давай))`)
+	supplyRule    = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
+	defendRule    = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
+	stopRule      = regexp.MustCompile(`(?i)(^|пыхтун[,! ]+)(стой|замри|подожди|постой)|подожд(и|ёте|ете) (меня|со мной)`)
+	followRule    = regexp.MustCompile(`(?i)(подойди|вернись|иди ко мне|иди сюда|пошли со мной|пойд[её]м со мной|за мной)`)
 	// talkAboutMobs: "ты боишься криперов?" names a mob but is small talk, not an alarm.
 	talkAboutMobs = regexp.MustCompile(`(?i)(бои(шь|т)ся|бояться|любишь|нравя?тся|видел|расскажи|про\s|какие|сколько)`)
 	urgentMobs    = regexp.MustCompile(`(?i)(рядом|сзади|тут|здесь|ид[уё]т|напал|помоги|защищ|спаса|осторожн|берегись)`)
@@ -193,6 +197,8 @@ func applyRules(d Decision, text string) (Decision, bool) {
 		{supplyRule, ActSupply},
 		{saluteRule, ActSalute},
 		{flyToRule, ActFlyTo},
+		{flyTricksRule, ActFlyTricks},
+		{flyRouteRule, ActFlyRoute},
 		{flyLowRule, ActFlyLow},
 		{flyRule, ActFly},
 		{defendRule, ActDefend},

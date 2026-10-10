@@ -121,6 +121,10 @@ func TestKeywordRules(t *testing.T) {
 		"Пыхтун, полетели низко":    ActFlyLow,
 		"лети пониже, над крышами":  ActFlyLow,
 		"Пыхтун, устрой салют!":     ActSalute,
+		"покажи трюки":              ActFlyTricks,
+		"Пыхтун, сделай бочку!":     ActFlyTricks,
+		"облети окрестности":        ActFlyRoute,
+		"полетели в патруль":        ActFlyRoute,
 		"запусти фейерверки":        ActSalute,
 	}
 	for text, want := range cases {
