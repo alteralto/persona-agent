@@ -44,7 +44,7 @@ func (a *Agent) position(ctx context.Context) (explore.Pos, bool, error) {
 	return pos, st.Busy, err
 }
 
-const stuckFor = 10 * time.Second
+const stuckFor = 6 * time.Second
 
 // handsOffFor is how long the bot keeps out of the way after the player last steered by hand.
 const handsOffFor = 5 * time.Second // a few seconds with no WASD: he walks on his own again
@@ -126,13 +126,19 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	walkingToPoint := a.trip != nil || a.outing != nil || a.leading || a.activity != nil
 	// Following is checked too, but only when the one followed is out of reach (see below).
 	following := a.following != "" && !walkingToPoint && !a.flying
-	if !busy || !(walkingToPoint || following) || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1 {
+	// The pathfinder gave up (it stops the walk as it does, so "busy" is already false): stuck now.
+	gaveUp := (walkingToPoint || following) && time.Since(a.navGaveUp) < 3*time.Second
+	if !gaveUp && (!busy || !(walkingToPoint || following) || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1) {
 		a.stillPos, a.stillSince = pos, time.Now()
 		return false
 	}
-	if time.Since(a.stillSince) < stuckFor {
+	if !gaveUp && time.Since(a.stillSince) < stuckFor {
 		return false
 	}
+	if gaveUp {
+		a.log.Info("stuck: the pathfinder gave up")
+	}
+	a.navGaveUp = time.Time{}
 	tx, tz, haveTarget := a.walkTarget()
 	if following {
 		_, lx, lz, d, ok := a.playerPos(ctx, a.following)

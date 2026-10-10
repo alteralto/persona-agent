@@ -115,6 +115,7 @@ type Agent struct {
 	lastTopicMingle int
 	lastViewer      time.Time // the last answer to the stream chat
 	celebrateAt     time.Time // a rocket for the landing, due a moment after touch-down
+	navGaveUp       time.Time // the pathfinder said the goal is unreachable
 	hovering        bool      // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time // the last time it joined a player in the air
 	leading         bool      // walking players to the burrow
@@ -362,6 +363,11 @@ func (a *Agent) recentChat(ctx context.Context) ([]string, error) {
 }
 
 func (a *Agent) handleLine(ctx context.Context, line string) {
+	// The pathfinder gave up on the goal: no point waiting to notice the bot is standing still.
+	if strings.Contains(line, "goal unreachable") {
+		a.navGaveUp = time.Now()
+		return
+	}
 	msg, ok := chatlog.Parse(line)
 	if !ok {
 		return
