@@ -117,6 +117,9 @@ func TestKeywordRules(t *testing.T) {
 		"Пыхтун, подойди сюда":      ActFollow,
 		"Вернись к нам, пожалуйста": ActFollow,
 		"Пыхтун, полетели!":         ActFly,
+		"пролети бреющим":           ActFlyLow,
+		"Пыхтун, полетели низко":    ActFlyLow,
+		"лети пониже, над крышами":  ActFlyLow,
 	}
 	for text, want := range cases {
 		if d, ok := applyRules(Decision{Action: ActWait}, text); !ok || d.Action != want {

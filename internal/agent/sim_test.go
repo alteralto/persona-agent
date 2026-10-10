@@ -438,3 +438,19 @@ func TestSimHandTakeOverHoldsTheBot(t *testing.T) {
 		t.Errorf("started following %d times while the player steered", n-follows)
 	}
 }
+
+// "Пролети бреющим" asks the fork for a low-level flight; a plain "полетели" does not.
+func TestSimLowLevelFlightOnRequest(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, пролети бреющим!")
+	r.waitFor("low take-off", 4*time.Second, func() bool { return r.w.Has("tool", `"low":true`) })
+	r.waitFor("landing", 6*time.Second, func() bool { return r.w.Has("land", "") })
+	before := r.w.Count("tool", `"low":true`)
+	r.w.Say("Alex", "Пыхтун, полетели!")
+	r.waitFor("second take-off", 6*time.Second, func() bool { return r.w.Count("fly", "") >= 2 })
+	if n := r.w.Count("tool", `"low":true`); n != before {
+		t.Errorf("a plain flight went low-level")
+	}
+}

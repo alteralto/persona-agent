@@ -19,8 +19,9 @@ const (
 	ActDefend = "defend"
 	ActSupply = "supply"
 	ActLead   = "lead"
-	ActFly    = "fly"   // rule-only: not offered to Laya, keeps her option list short
-	ActFlyTo  = "flyto" // rule-only: fly to a player
+	ActFly    = "fly"    // rule-only: not offered to Laya, keeps her option list short
+	ActFlyTo  = "flyto"  // rule-only: fly to a player
+	ActFlyLow = "flylow" // rule-only: a low-level flight (бреющий), a few blocks over the ground
 )
 
 const (
@@ -171,6 +172,7 @@ var leadRule = regexp.MustCompile(`(?i)(веди|проводи|отведи|п�
 var (
 	flyToRule  = regexp.MustCompile(`(?i)(прилет(ай|и)|лети\s+(ко мне|к нам|сюда|к\s+[^\s,.!?]+))`)
 	flyRule    = regexp.MustCompile(`(?i)(полетели|полетаем|взлетай|взлетаем|летим|на элитрах)`)
+	flyLowRule = regexp.MustCompile(`(?i)(бреющ|(пролети|лети|летай|полетай|полетели)\s+(пониже|низко|над\s+самой\s+землёй))`)
 	supplyRule = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
 	defendRule = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
 	stopRule   = regexp.MustCompile(`(?i)(^|пыхтун[,! ]+)(стой|замри|подожди|постой)|подожд(и|ёте|ете) (меня|со мной)`)
@@ -188,6 +190,7 @@ func applyRules(d Decision, text string) (Decision, bool) {
 	}{
 		{supplyRule, ActSupply},
 		{flyToRule, ActFlyTo},
+		{flyLowRule, ActFlyLow},
 		{flyRule, ActFly},
 		{defendRule, ActDefend},
 		{stopRule, ActStop},

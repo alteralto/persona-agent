@@ -530,13 +530,13 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		default:
 			cmd = "@give " + nick + " paper 3"
 		}
-	case ActFly:
+	case ActFly, ActFlyLow:
 		a.trip, a.following = nil, ""
 		// "Полетели вместе" from someone far away: fly to them, not off somewhere else.
 		if _, _, _, d, ok := a.playerPos(ctx, nick); ok && d > a.flyAbove() && a.flyToPlayer(ctx, nick) {
 			return
 		}
-		if !a.flyShowOff(ctx) {
+		if !a.flyShowOff(ctx, action == ActFlyLow) {
 			a.log.Info("fly skipped: no flight available")
 		}
 		return

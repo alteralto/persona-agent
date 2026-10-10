@@ -119,7 +119,7 @@ func (a *Agent) flyAbove() float64 {
 	return 60
 }
 
-func (a *Agent) flyShowOff(ctx context.Context) bool {
+func (a *Agent) flyShowOff(ctx context.Context, low bool) bool {
 	if !a.havePos {
 		return false
 	}
@@ -146,8 +146,8 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 			x, z = int(cx+r*math.Cos(angle)), int(cz+r*math.Sin(angle))
 		}
 		a.testLegOut = !home
-		a.log.Info("flight test leg", "x", x, "z", z, "home", home)
-		return a.startFlight(ctx, x, z)
+		a.log.Info("flight test leg", "x", x, "z", z, "home", home, "low", low)
+		return a.startFlightLow(ctx, x, z, low)
 	}
 	if a.places != nil {
 		var far []explore.Place
@@ -161,5 +161,5 @@ func (a *Agent) flyShowOff(ctx context.Context) bool {
 			x, z = p.X, p.Z
 		}
 	}
-	return a.startFlight(ctx, x, z)
+	return a.startFlightLow(ctx, x, z, low)
 }

@@ -48,6 +48,7 @@ var actionNotes = map[string]string{
 	ActFly:             "ты уже надеваешь элитры и взлетаешь на ракетах — сам боишься высоты, но соглашаешься и летишь",
 	noteSupplyCreative: "ты достал ракеты из креатив-вкладки и уже отдаёшь их игроку — они у него сейчас будут",
 	ActFlyTo:           "ты летишь на элитрах к игроку, о котором речь",
+	ActFlyLow:          "ты взлетаешь на элитрах и летишь бреющим, в паре блоков над землёй — страшно, но лихо",
 }
 
 func replyMessages(history []string, nick, text, action, places string) []giga.Message {

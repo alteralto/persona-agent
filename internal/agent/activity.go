@@ -105,14 +105,18 @@ func (a *Agent) startScout(ctx context.Context) bool {
 
 // startFlightShow takes off for a far known place and says so.
 func (a *Agent) startFlightShow(ctx context.Context) bool {
-	if !a.flyShowOff(ctx) {
+	low := rand.IntN(3) == 0 // now and then a low-level one, for the show
+	if !a.flyShowOff(ctx, low) {
 		return false
 	}
-	a.log.Info("activity: flight")
+	a.log.Info("activity: flight", "low", low)
+	how := "надеваешь элитры и взлетаешь на ракетах, хоть и боишься высоты"
+	if low {
+		how = "надеваешь элитры и летишь бреющим, в паре блоков над землёй — лихо и страшно"
+	}
 	a.enqueue(replyJob{
-		prompt: "Ты сам решил полетать: надеваешь элитры и взлетаешь на ракетах, хоть и боишься высоты. " +
-			"Скажи об этом одной короткой фразой до 90 символов, в характере.",
-		at: time.Now(),
+		prompt: "Ты сам решил полетать: " + how + ". Скажи об этом одной короткой фразой до 90 символов, в характере.",
+		at:     time.Now(),
 	})
 	return true
 }

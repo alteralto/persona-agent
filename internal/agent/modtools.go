@@ -209,15 +209,25 @@ func (a *Agent) creativeGive(ctx context.Context, item string, count int) bool {
 // and fireworks from the creative inventory (once per run). Returns false when flight is not
 // possible, and the caller walks instead.
 func (a *Agent) startFlight(ctx context.Context, x, z int) bool {
+	return a.startFlightLow(ctx, x, z, false)
+}
+
+// startFlightLow takes off for x, z; low is a low-level flight (бреющий) a few blocks over the
+// ground. An older fork jar ignores it and flies at the usual height.
+func (a *Agent) startFlightLow(ctx context.Context, x, z int, low bool) bool {
 	y := 70
 	if a.places != nil && a.places.Home != nil {
 		y = int(a.places.Home.Y)
 	}
-	if !a.takeOff(ctx, "flyTo", map[string]any{"x": x, "y": y, "z": z}) {
+	args := map[string]any{"x": x, "y": y, "z": z}
+	if low {
+		args["low"] = true
+	}
+	if !a.takeOff(ctx, "flyTo", args) {
 		return false
 	}
 	a.flyX, a.flyZ = x, z
-	a.log.Info("flight: taking off", "x", x, "z", z)
+	a.log.Info("flight: taking off", "x", x, "z", z, "low", low)
 	return true
 }
 

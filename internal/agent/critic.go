@@ -23,7 +23,7 @@ func promisesMove(text string) bool {
 // moving reports whether the action really moves the bot.
 func moving(action string) bool {
 	switch action {
-	case ActFollow, ActLead, ActSupply, ActFly, ActFlyTo:
+	case ActFollow, ActLead, ActSupply, ActFly, ActFlyTo, ActFlyLow:
 		return true
 	}
 	return false
