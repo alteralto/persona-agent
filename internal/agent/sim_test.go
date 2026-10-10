@@ -17,6 +17,7 @@ import (
 	"github.com/alteralto/persona-agent/internal/laya"
 	"github.com/alteralto/persona-agent/internal/mcp"
 	"github.com/alteralto/persona-agent/internal/sim"
+	"github.com/alteralto/persona-agent/internal/twitch"
 )
 
 // End-to-end runs of the real agent against the simulated game (internal/sim). They cover what
@@ -44,6 +45,7 @@ type run struct {
 	w    *sim.World
 	giga *sim.Giga
 	log  *lockedBuf
+	a    *agent.Agent
 }
 
 func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
@@ -82,7 +84,7 @@ func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
 			t.Errorf("agent stopped: %v", err)
 		}
 	}()
-	r := &run{t: t, w: w, giga: g, log: buf}
+	r := &run{t: t, w: w, giga: g, log: buf, a: a}
 	t.Cleanup(func() {
 		cancel()
 		<-done
@@ -543,4 +545,24 @@ func TestSimMarkOnTheMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitFor("flight to the new mark", 6*time.Second, func() bool { return r.w.Has("fly", "200 -150") })
+}
+
+// The stream chat: a viewer need not name the bot; a show they ask for goes on, a follow does not
+// (they are not in the game), and each gets a word back.
+func TestSimTwitchViewer(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.ready()
+	tw := r.a.WithTwitch()
+	tw <- twitch.Message{Nick: "Зритель", Text: "устрой салют"}
+	r.waitFor("salute for a viewer", 4*time.Second, func() bool { return r.w.Has("salute", "") })
+	r.waitFor("a reply to the viewer", 4*time.Second, func() bool { return r.w.Count("say", "") >= 1 })
+	time.Sleep(50 * time.Millisecond)
+	if r.w.Has("cmd", "@follow") {
+		t.Error("followed a viewer")
+	}
+	for _, p := range r.giga.Calls() {
+		if strings.Contains(p, "устрой салют") && !strings.Contains(p, "зритель стрима") {
+			t.Errorf("the prompt does not say it is a viewer: %q", p)
+		}
+	}
 }

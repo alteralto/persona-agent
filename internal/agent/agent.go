@@ -20,6 +20,7 @@ import (
 	"github.com/alteralto/persona-agent/internal/laya"
 	"github.com/alteralto/persona-agent/internal/mcp"
 	"github.com/alteralto/persona-agent/internal/memory"
+	"github.com/alteralto/persona-agent/internal/twitch"
 	"github.com/alteralto/persona-agent/internal/voice"
 )
 
@@ -110,6 +111,7 @@ type Agent struct {
 	lastChime       time.Time // the last time he joined a talk he was not named in
 	lastMingle      time.Time // the last small thing he did among people (activity.go)
 	lastTopicMingle int
+	lastViewer      time.Time // the last answer to the stream chat
 	hovering        bool      // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time // the last time it joined a player in the air
 	leading         bool      // walking players to the burrow
@@ -181,6 +183,7 @@ type Agent struct {
 
 	speaker *voice.Speaker   // nil: text chat only
 	heard   chan voice.Heard // recognized player speech
+	twitch  chan twitch.Message
 }
 
 type replyJob struct {
@@ -196,7 +199,7 @@ type replyJob struct {
 
 func New(cfg Config, mc *mcp.Client, l *laya.Client, llm *giga.Client, log *slog.Logger) *Agent {
 	a := &Agent{cfg: cfg, mc: mc, laya: l, llm: llm, log: log, replyQueue: make(chan replyJob, 1),
-		heard: make(chan voice.Heard, 4), creative: cfg.Creative, journal: newJournal(cfg.JournalPath), readSigns: map[string]bool{}}
+		heard: make(chan voice.Heard, 4), twitch: make(chan twitch.Message, 8), creative: cfg.Creative, journal: newJournal(cfg.JournalPath), readSigns: map[string]bool{}}
 	if cfg.PeopleDir != "" {
 		a.people = memory.New(cfg.PeopleDir)
 	}
@@ -222,6 +225,9 @@ func (a *Agent) WithVoice(s *voice.Speaker) chan<- voice.Heard {
 	a.speaker = s
 	return a.heard
 }
+
+// WithTwitch returns the channel for the stream's chat (package twitch).
+func (a *Agent) WithTwitch() chan<- twitch.Message { return a.twitch }
 
 func (a *Agent) Run(ctx context.Context) error {
 	places, err := explore.LoadPlaces(a.cfg.PlacesPath)
@@ -284,6 +290,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		case h := <-a.heard:
 			a.log.Info("heard", "nick", h.Nick, "text", h.Text, "stt_ms", h.STTms)
 			a.handleMessage(ctx, chatlog.Message{Nick: h.Nick, Text: h.Text}, "voice")
+			continue
+		case m := <-a.twitch:
+			a.handleViewer(ctx, m)
 			continue
 		case <-t.C:
 		}
@@ -791,4 +800,36 @@ func namesSomeone(text string) bool {
 	}
 	w := words(head)
 	return len(w) >= 1 && len(w) <= 2 && !slices.ContainsFunc(w, func(s string) bool { return slices.Contains(toEveryone, s) })
+}
+
+// viewerEvery: one answer to the stream chat this often; a busy chat is not answered line by line.
+const viewerEvery = 15 * time.Second
+
+// viewerActions: what a viewer may ask for. They are not in the game, so following, stopping or
+// being led home make no sense; the show does.
+var viewerActions = map[string]bool{ActSalute: true, ActFlyTricks: true, ActFlyLow: true, ActFlyRoute: true}
+
+// handleViewer answers a line from the stream chat. Viewers need not name the bot: the stream is
+// about him. Only the explicit rules pick an action (no Laya: her questions are about players).
+func (a *Agent) handleViewer(ctx context.Context, m twitch.Message) {
+	a.log.Info("twitch", "nick", m.Nick, "text", m.Text)
+	msg := chatlog.Message{Nick: m.Nick + " (зритель стрима)", Text: m.Text}
+	if time.Since(a.lastViewer) < viewerEvery {
+		a.remember(msg)
+		return
+	}
+	a.lastViewer = time.Now()
+	start := time.Now()
+	d, _ := applyRules(Decision{Action: ActWait}, m.Text)
+	note := noteViewer
+	if viewerActions[d.Action] {
+		a.lastRequest = time.Now()
+		a.activity = nil
+		a.act(ctx, d.Action, m.Nick)
+		note = d.Action
+	}
+	a.log.Info("twitch: answer", "nick", m.Nick, "action", note)
+	a.enqueue(replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: m.Text, action: note,
+		places: a.placesNote(), creative: a.creative, at: start})
+	a.remember(msg)
 }

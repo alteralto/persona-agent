@@ -16,6 +16,7 @@ import (
 	"github.com/alteralto/persona-agent/internal/giga"
 	"github.com/alteralto/persona-agent/internal/laya"
 	"github.com/alteralto/persona-agent/internal/mcp"
+	"github.com/alteralto/persona-agent/internal/twitch"
 	"github.com/alteralto/persona-agent/internal/voice"
 )
 
@@ -93,6 +94,10 @@ func main() {
 				log.Error("voice listener", "err", err)
 			}
 		}()
+	}
+	// The stream chat, read-only and anonymous: TWITCH_CHANNEL=name (empty: off).
+	if ch := env("TWITCH_CHANNEL", ""); ch != "" {
+		go (&twitch.Reader{Channel: ch, Log: log}).Run(ctx, a.WithTwitch())
 	}
 	log.Info("pyhtun starting", "bot", cfg.BotNick, "creative", cfg.Creative)
 	if err := a.Run(ctx); err != nil {

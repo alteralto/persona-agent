@@ -53,6 +53,7 @@ struct Settings {
     home_z: String,
     laya_cpu: bool, // Laya on the CPU leaves the whole GPU to the game
     flight_style: String, // "" mixes them; normal, low, tricks, route fix one
+    twitch: String,       // the stream's channel: the agent reads its chat (empty: off)
 }
 
 impl Default for Settings {
@@ -63,6 +64,7 @@ impl Default for Settings {
             home_z: "-183".into(),
             laya_cpu: false,
             flight_style: String::new(),
+            twitch: String::new(),
         }
     }
 }
@@ -244,6 +246,9 @@ impl eframe::App for Pult {
                         ui.selectable_value(&mut self.settings.flight_style, k.to_string(), v);
                     }
                 });
+                ui.add_space(12.0);
+                ui.label("Twitch").on_hover_text("Имя канала стрима: агент читает его чат и отвечает зрителям. Пусто — выключено. Применится при запуске агента.");
+                ui.add(egui::TextEdit::singleline(&mut self.settings.twitch).desired_width(90.0).hint_text("канал"));
                 ui.add_space(12.0);
                 ui.checkbox(&mut self.settings.laya_cpu, "Laya на процессоре").on_hover_text(
                     "Вся видеокарта остаётся игре (больше FPS), решения чуть медленнее. Применится при запуске Laya.",
@@ -440,6 +445,9 @@ fn start_agent(root: &Path, s: &Settings) -> String {
     if !s.flight_style.is_empty() {
         cmd.env("FLIGHT_STYLE", &s.flight_style);
     }
+    if !s.twitch.trim().is_empty() {
+        cmd.env("TWITCH_CHANNEL", s.twitch.trim());
+    }
     if let Err(e) = cmd.spawn() {
         return format!("агент не запустился: {e}");
     }
@@ -592,6 +600,7 @@ fn load_settings(root: &Path) -> Settings {
             Some(("home_z", v)) => s.home_z = v.to_string(),
             Some(("laya_cpu", v)) => s.laya_cpu = v == "1",
             Some(("flight_style", v)) => s.flight_style = v.to_string(),
+            Some(("twitch", v)) => s.twitch = v.to_string(),
             _ => {}
         }
     }
@@ -601,12 +610,13 @@ fn load_settings(root: &Path) -> Settings {
 fn save_settings(root: &Path, s: &Settings) {
     let b = |v: bool| if v { "1" } else { "0" };
     let text = format!(
-        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\n",
+        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\ntwitch={}\n",
         b(s.test_mode),
         s.home_x.trim(),
         s.home_z.trim(),
         b(s.laya_cpu),
-        s.flight_style
+        s.flight_style,
+        s.twitch.trim()
     );
     let _ = fs::create_dir_all(root.join("data"));
     let _ = fs::write(settings_path(root), text);
