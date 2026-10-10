@@ -75,7 +75,7 @@ func xaeroLines(p *explore.Places) []string {
 	}
 	var out []string
 	if p.Home != nil {
-		out = append(out, xaeroLine("Нора Пыхтуна", int(p.Home.X), y, int(p.Home.Z), 12))
+		out = append(out, xaeroLine("Нора Пыхтуна", int(p.Home.X), y, int(p.Home.Z), 12, xaeroEverywhere))
 	}
 	var finds []explore.Place
 	for _, pl := range p.List {
@@ -88,13 +88,20 @@ func xaeroLines(p *explore.Places) []string {
 		finds = finds[:xaeroMax]
 	}
 	for _, f := range finds {
-		out = append(out, xaeroLine(shortName(f.Desc), f.X, y, f.Z, 14))
+		out = append(out, xaeroLine(shortName(f.Desc), f.X, y, f.Z, 14, xaeroWorldMapOnly))
 	}
 	return out
 }
 
+// Xaero's visibility types: 0 shows a waypoint everywhere (in the world, on the minimap and the
+// world map); 2 only on the world map. Sixty finds floating in the world as letters hid the view.
+const (
+	xaeroEverywhere   = 0
+	xaeroWorldMapOnly = 2
+)
+
 // xaeroLine: waypoint:name:initials:x:y:z:color:disabled:type:set:rotate_on_tp:tp_yaw:visibility:destination
-func xaeroLine(name string, x, y, z, color int) string {
+func xaeroLine(name string, x, y, z, color, visibility int) string {
 	initial := "?"
 	for _, r := range name {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -103,7 +110,7 @@ func xaeroLine(name string, x, y, z, color int) string {
 		}
 	}
 	name = strings.ReplaceAll(XaeroMark+name, ":", "§§") // Xaero's escape for ':' in a name
-	return fmt.Sprintf("waypoint:%s:%s:%d:%d:%d:%d:false:0:gui.xaero_default:false:0:0:false", name, initial, x, y, z, color)
+	return fmt.Sprintf("waypoint:%s:%s:%d:%d:%d:%d:false:0:gui.xaero_default:false:0:%d:false", name, initial, x, y, z, color, visibility)
 }
 
 // shortName: "серая постройка (каменные кирпичи, …)" -> "серая постройка"; a bare "постройка"

@@ -46,8 +46,8 @@ func TestWriteXaero(t *testing.T) {
 	s := string(got)
 	for _, want := range []string{
 		"waypoint:цель_1:Ц:-596:91:-265:10:false:0:gui.xaero_default:false:0:0:false\r\n", // the player's: untouched
-		"waypoint:◆ Нора Пыхтуна:Н:-471:103:-183:12:",
-		"waypoint:◆ серая постройка:С:-397:103:-182:14:",
+		"waypoint:◆ Нора Пыхтуна:Н:-471:103:-183:12:false:0:gui.xaero_default:false:0:0:false",
+		"waypoint:◆ серая постройка:С:-397:103:-182:14:false:0:gui.xaero_default:false:0:2:false",
 		"waypoint:◆ башня§§ высокая:Б:10:103:20:14:",
 		"waypoint:◆ постройка — дубовые доски:П:30:103:40:14:",
 	} {
