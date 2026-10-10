@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -359,25 +360,143 @@ func (a *Agent) mood(name string, seconds int) {
 	}
 }
 
-// leaderFlying reports whether the player the bot follows is flying an elytra right now.
-func (a *Agent) leaderFlying(ctx context.Context, nick string) bool {
+// Ways a player is up in the air.
+const (
+	airGlide = "glide" // on an elytra
+	airHover = "hover" // creative flight: hangs, stops, turns on the spot
+)
+
+// flyingPlayer is someone in the air near the bot.
+type flyingPlayer struct {
+	name string
+	how  string
+	dist float64
+}
+
+// playersInAir lists the players flying now, nearest first (the mod sorts them).
+func (a *Agent) playersInAir(ctx context.Context) []flyingPlayer {
 	text, err := a.mc.Call(ctx, "getGameState", nil)
 	if err != nil {
-		return false
+		return nil
 	}
 	var st struct {
 		Players []struct {
-			Name    string `json:"name"`
-			Gliding bool   `json:"gliding"`
+			Name     string `json:"name"`
+			Distance string `json:"distance"`
+			Gliding  bool   `json:"gliding"`
+			Hovering bool   `json:"hovering"`
 		} `json:"players"`
 	}
 	if json.Unmarshal([]byte(text), &st) != nil {
+		return nil
+	}
+	var out []flyingPlayer
+	for _, p := range st.Players {
+		d, _ := strconv.ParseFloat(p.Distance, 64)
+		switch {
+		case p.Gliding:
+			out = append(out, flyingPlayer{p.Name, airGlide, d})
+		case p.Hovering:
+			out = append(out, flyingPlayer{p.Name, airHover, d})
+		}
+	}
+	return out
+}
+
+// flyTogether: how near a flying player must be for the bot to join them, and how long after
+// one flight together it waits before it joins anyone again (not glued to every flyer).
+const (
+	flyTogetherNear  = 40.0
+	flyTogetherAgain = 90 * time.Second
+)
+
+// joinFlyers takes off beside a player in the air: the one it follows at once, anyone close by
+// now and then. An elytra flyer gets an elytra wingman; a creative flyer, creative flight.
+func (a *Agent) joinFlyers(ctx context.Context) bool {
+	if !a.fork || a.flying || a.hovering || a.retryFlight != nil {
 		return false
 	}
-	for _, p := range st.Players {
-		if strings.EqualFold(p.Name, nick) {
-			return p.Gliding
+	for _, p := range a.playersInAir(ctx) {
+		mine := a.following != "" && strings.EqualFold(p.name, a.following)
+		if !mine && (p.dist > flyTogetherNear || time.Since(a.lastFlyTogether) < flyTogetherAgain ||
+			slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, p.name) })) {
+			continue
 		}
+		ok := false
+		switch {
+		case p.how == airGlide && !a.noFlight:
+			ok = a.startWingman(ctx, p.name)
+		case p.how == airHover && a.creative:
+			ok = a.startHover(ctx, p.name)
+		}
+		if !ok {
+			continue
+		}
+		a.lastFlyTogether = time.Now()
+		a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
+		a.mood("scared", 20)
+		a.enqueue(replyJob{
+			prompt: fmt.Sprintf("Игрок %s полетел, и ты сам взлетаешь следом, чтобы лететь рядом с ним. "+
+				"Скажи ему об этом одной короткой фразой до 90 символов, в характере: страшно, но весело.",
+				spokenName(p.name)),
+			history: append([]string(nil), a.history...),
+			at:      time.Now(),
+		})
+		return true
+	}
+	return false
+}
+
+// startHover flies beside a creative flyer with creative flight (fork's hoverFollow).
+func (a *Agent) startHover(ctx context.Context, nick string) bool {
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+		a.log.Warn("hover stop", "err", err)
+	}
+	text, err := a.mc.Call(ctx, "hoverFollow", map[string]any{"nick": nick})
+	if err != nil {
+		a.log.Warn("hoverFollow", "err", err)
+		return false
+	}
+	var st struct {
+		Phase  string `json:"phase"`
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil || st.Phase != "flying" {
+		a.log.Info("hover: not started", "nick", nick, "reason", st.Reason)
+		return false
+	}
+	a.hovering = true
+	a.followAfter = nick
+	a.log.Info("hover: flying beside", "leader", nick)
+	return true
+}
+
+// checkHover polls a creative flight beside someone; true while it goes on.
+func (a *Agent) checkHover(ctx context.Context) bool {
+	if !a.hovering {
+		return false
+	}
+	text, err := a.mc.Call(ctx, "hoverStatus", nil)
+	if err != nil {
+		a.hovering = false
+		return false
+	}
+	var st struct {
+		Phase  string  `json:"phase"`
+		Reason string  `json:"reason"`
+		Gap    float64 `json:"gap"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil {
+		return true
+	}
+	if st.Phase == "flying" || st.Phase == "landing" {
+		return true
+	}
+	a.hovering = false
+	a.log.Info("hover: "+st.Phase, "reason", st.Reason)
+	if st.Phase == "done" {
+		a.mood("happy", 6)
+		a.celebrate(ctx, "flew together")
 	}
 	return false
 }
@@ -432,9 +551,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		if st.Phase == "done" {
 			a.mood("happy", 6) // down safe
 			// Now and then one pretty rocket on landing, for the joy of it.
-			if rand.IntN(4) == 0 && time.Since(a.lastRocketShow) > rocketShowEvery {
-				a.salute(ctx, 1)
-			}
+			a.celebrate(ctx, "landing")
 		} else {
 			a.mood("neutral", 1)
 		}

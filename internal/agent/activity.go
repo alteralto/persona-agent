@@ -177,8 +177,10 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 			a.survey(ctx, pos, explore.ChunkOf(pos))
 		case "mark":
 			a.lingerFor(markStay) // stay at the mark a while
+			a.celebrate(ctx, "mark")
 		case "visit":
 			a.lingerFor(visitStay) // stay near them a while, doing its own things
+			a.celebrate(ctx, "visit")
 			if time.Since(a.greeted[act.label]) > time.Hour {
 				a.greeted[act.label] = time.Now()
 				a.enqueue(replyJob{
@@ -207,7 +209,9 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 }
 
 // rocketShowEvery: at most one pretty rocket from the ground this often, unless asked for a show.
-const rocketShowEvery = 10 * time.Minute
+// One goes up after a bright moment (a landing, a visit, a mark reached) and about every minute
+// while people are around.
+const rocketShowEvery = time.Minute
 
 const (
 	visitNear  = 30.0             // someone this close: the bot is among people already
@@ -328,7 +332,7 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	case free && a.creative && r < 0.15 && a.startFlightShow(ctx):
 		a.log.Info("mingle: show", "player", near.name)
 		return true
-	case free && a.creative && r < 0.22 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx):
+	case free && a.creative && r < 0.55 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx):
 		a.log.Info("mingle: rocket", "player", near.name)
 		return true
 	case free && r < 0.40 && near.dist > 6:
@@ -349,4 +353,14 @@ func (a *Agent) mingle(ctx context.Context) bool {
 		at:      time.Now(),
 	})
 	return true
+}
+
+// celebrate sends up one pretty rocket for a bright moment, at most every rocketShowEvery.
+func (a *Agent) celebrate(ctx context.Context, why string) {
+	if !a.creative || time.Since(a.lastRocketShow) < rocketShowEvery {
+		return
+	}
+	if a.salute(ctx, 1) {
+		a.log.Info("celebrate", "why", why)
+	}
 }

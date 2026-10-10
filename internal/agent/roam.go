@@ -275,12 +275,22 @@ func (a *Agent) roam(ctx context.Context) {
 			}
 		}
 	}
-	a.checkFollowAlive(ctx, busy)
-	// The one we follow took off on an elytra: fly beside them instead of running below.
-	if a.following != "" && a.fork && !a.noFlight && a.leaderFlying(ctx, a.following) {
-		if a.startWingman(ctx, a.following) {
-			return
+	if a.checkHover(ctx) {
+		return
+	}
+	if a.followAfter != "" && !a.flying && !a.hovering { // flew beside a player: keep up on foot
+		nick := a.followAfter
+		a.followAfter = ""
+		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@follow " + nick}); err != nil {
+			a.log.Warn("after hover follow", "err", err)
 		}
+		a.following = nick
+	}
+	a.checkFollowAlive(ctx, busy)
+	// Someone took off (the one we follow, or a player close by): fly beside them instead of
+	// running below.
+	if a.joinFlyers(ctx) {
+		return
 	}
 	if a.outing != nil {
 		a.checkOuting(ctx, pos)

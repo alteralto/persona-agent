@@ -99,17 +99,19 @@ type Agent struct {
 	havePos     bool
 	lastCommand time.Time
 
-	outing     *outing
-	protected  bool
-	ownLines   []string // last lines the bot said; touched only by replyWorker
-	lastTopic  int
-	stillPos   explore.Pos
-	stillSince time.Time
-	stuckCount int // stuck spells in a row, a minute and a half apart at most
-	lastStuck  time.Time
-	lastChime  time.Time // the last time he joined a talk he was not named in
-	lastMingle time.Time // the last small thing he did among people (activity.go)
-	leading    bool      // walking players to the burrow
+	outing          *outing
+	protected       bool
+	ownLines        []string // last lines the bot said; touched only by replyWorker
+	lastTopic       int
+	stillPos        explore.Pos
+	stillSince      time.Time
+	stuckCount      int // stuck spells in a row, a minute and a half apart at most
+	lastStuck       time.Time
+	lastChime       time.Time // the last time he joined a talk he was not named in
+	lastMingle      time.Time // the last small thing he did among people (activity.go)
+	hovering        bool      // creative-flying beside a player (modtools.go)
+	lastFlyTogether time.Time // the last time it joined a player in the air
+	leading         bool      // walking players to the burrow
 
 	// Fork features (see modtools.go).
 	creative       bool // from getGameState when the fork reports it, else from config
