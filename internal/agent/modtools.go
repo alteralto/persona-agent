@@ -425,11 +425,10 @@ func (a *Agent) joinFlyers(ctx context.Context) bool {
 			slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, p.name) })) {
 			continue
 		}
-		ok := false
-		switch {
-		case p.how == airGlide && !a.noFlight:
-			ok = a.startWingman(ctx, p.name)
-		case p.how == airHover && a.creative:
+		// On an elytra whichever way they fly: beside a glider, circling round a creative flyer
+		// (the pilot orbits a slow leader). Creative flight only when the elytra cannot go up.
+		ok := !a.noFlight && a.startWingman(ctx, p.name)
+		if !ok && p.how == airHover && a.creative {
 			ok = a.startHover(ctx, p.name)
 		}
 		if !ok {
