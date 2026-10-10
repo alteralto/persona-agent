@@ -515,7 +515,8 @@ func (a *Agent) checkWater(ctx context.Context) bool {
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("water stop", "err", err)
 	}
-	out, err := a.mc.Call(ctx, "swimToShore", map[string]any{"radius": 32})
+	a.dropScoutTarget(a.activity)                                           // a scout that led into water: not that chunk again
+	out, err := a.mc.Call(ctx, "swimToShore", map[string]any{"radius": 48}) // the most the fork looks
 	if err != nil {
 		if unknownTool(err) {
 			a.noSwim = true // an older fork jar

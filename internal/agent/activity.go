@@ -180,6 +180,7 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 	if time.Since(act.started) > activityTimeout {
 		a.log.Info("activity: gave up", "kind", act.kind)
 		a.activity = nil
+		a.dropScoutTarget(act)
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 			a.log.Warn("activity stop", "err", err)
 		}
@@ -255,4 +256,14 @@ func parseBlockPos(s string) (int, int, bool) {
 	x, err1 := strconv.Atoi(strings.TrimSpace(p[0]))
 	z, err2 := strconv.Atoi(strings.TrimSpace(p[2]))
 	return x, z, err1 == nil && err2 == nil
+}
+
+// dropScoutTarget marks a scout target the bot could not reach (a lake, a cliff) as seen, so the
+// next scout picks another one: it went back to the same lake chunk again and again.
+func (a *Agent) dropScoutTarget(act *activity) {
+	if act == nil || act.kind != "scout" {
+		return
+	}
+	a.places.MarkVisited(explore.ChunkOf(explore.Pos{X: float64(act.x), Z: float64(act.z)}))
+	a.savePlaces()
 }
