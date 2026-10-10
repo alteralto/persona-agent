@@ -190,6 +190,9 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.checkLobby(ctx) {
 		return
 	}
+	if a.checkMarks(ctx) {
+		return
+	}
 	if a.checkWater(ctx) {
 		return
 	}

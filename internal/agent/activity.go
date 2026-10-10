@@ -164,6 +164,8 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 			})
 		case "scout":
 			a.survey(ctx, pos, explore.ChunkOf(pos))
+		case "mark":
+			a.lingerFor(markStay) // stay at the mark a while
 		case "visit":
 			a.lingerFor(visitStay) // stay near them a while, doing its own things
 			if time.Since(a.greeted[act.label]) > time.Hour {
@@ -179,7 +181,11 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 		}
 		return
 	}
-	if time.Since(act.started) > activityTimeout {
+	limit := activityTimeout
+	if act.kind == "mark" {
+		limit = markTimeout
+	}
+	if time.Since(act.started) > limit {
 		a.log.Info("activity: gave up", "kind", act.kind)
 		a.activity = nil
 		a.dropScoutTarget(act)

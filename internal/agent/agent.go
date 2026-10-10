@@ -70,6 +70,8 @@ type Config struct {
 	AllowBreak bool
 	// FlightStyle fixes how show flights are flown: normal, low, tricks, route; empty mixes them.
 	FlightStyle string
+	// MarksDir: Xaero's waypoint folder (xaero/minimap); a waypoint named B there sends the bot.
+	MarksDir string
 }
 
 type Agent struct {
@@ -136,6 +138,8 @@ type Agent struct {
 	// lastRocketShow: the last colored rockets from the ground; on its own the bot fires one at
 	// most every rocketShowEvery.
 	lastRocketShow time.Time
+	marksChecked   time.Time
+	marksSeen      map[mark]bool
 	// Visits to players who are not companions: when each was last visited and greeted, so the
 	// bot comes over now and then without trailing anyone.
 	visited         map[string]time.Time

@@ -329,7 +329,7 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 		if unknownTool(err) && tool == "flyTo" {
 			a.noFlight = true // upstream mod: never try again this run
 		} else if unknownTool(err) {
-			a.log.Info("fork jar without "+tool+": a plain flight instead")
+			a.log.Info("fork jar without " + tool + ": a plain flight instead")
 		} else {
 			a.log.Warn("fly", "err", err)
 		}

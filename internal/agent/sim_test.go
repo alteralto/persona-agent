@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -512,4 +513,29 @@ func TestSimFlightStylesOnRequest(t *testing.T) {
 	r.waitFor("landing", 8*time.Second, func() bool { return r.w.Has("land", "") })
 	r.w.Say("Alex", "Пыхтун, облети окрестности")
 	r.waitFor("route", 6*time.Second, func() bool { return r.w.Has("fly", "route") })
+}
+
+// A waypoint named B on the map sends the bot there; marks already there at start do not.
+func TestSimMarkOnTheMap(t *testing.T) {
+	dir := t.TempDir()
+	wp := filepath.Join(dir, "Multiplayer_test", "dim%0", "mw$default_1.txt")
+	if err := os.MkdirAll(filepath.Dir(wp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := "waypoint:B:B:500:70:0:0:false:0:gui.xaero_default:false:0:0:false\n"
+	if err := os.WriteFile(wp, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) { c.MarksDir = dir })
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	time.Sleep(4 * time.Second) // one check of the marks: the old one stays where it is
+	if r.w.Has("fly", "500 0") {
+		t.Fatal("flew to a mark that was there before the start")
+	}
+	next := old + "waypoint:B:B:200:70:-150:0:false:0:gui.xaero_default:false:0:0:false\n"
+	if err := os.WriteFile(wp, []byte(next), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor("flight to the new mark", 6*time.Second, func() bool { return r.w.Has("fly", "200 -150") })
 }
