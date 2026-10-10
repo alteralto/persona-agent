@@ -241,8 +241,9 @@ func TestSimIgnoresOthersTalk(t *testing.T) {
 	r.ready()
 	r.w.Say("Alex", "Боб, иди за мной")
 	time.Sleep(500 * time.Millisecond)
-	if r.w.Has("cmd", "@follow") || r.w.Has("say", "") {
-		t.Error("reacted to a line addressed to someone else")
+	// A remark from the side is fine; going along is not.
+	if r.w.Has("cmd", "@follow") {
+		t.Error("followed a call addressed to someone else")
 	}
 }
 

@@ -124,20 +124,47 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	// Following keeps the mod "busy" even while standing next to the target, so only walks to
 	// a point (exploration, outing, leading home) are checked.
 	walkingToPoint := a.trip != nil || a.outing != nil || a.leading || a.activity != nil
-	if !busy || !walkingToPoint || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1 {
+	// Following is checked too, but only when the one followed is out of reach (see below).
+	following := a.following != "" && !walkingToPoint && !a.flying
+	if !busy || !(walkingToPoint || following) || math.Hypot(pos.X-a.stillPos.X, pos.Z-a.stillPos.Z) > 1 || math.Abs(pos.Y-a.stillPos.Y) > 1 {
 		a.stillPos, a.stillSince = pos, time.Now()
 		return false
 	}
 	if time.Since(a.stillSince) < stuckFor {
 		return false
 	}
-	// In creative, walls and fences we may not break are simply flown over.
-	if tx, tz, ok := a.walkTarget(); ok && a.creative &&
-		math.Hypot(float64(tx)-pos.X, float64(tz)-pos.Z) > a.flyAbove() && a.startFlight(ctx, tx, tz) {
-		a.log.Info("stuck: flying over instead", "x", int(pos.X), "z", int(pos.Z), "to_x", tx, "to_z", tz)
-		a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
+	tx, tz, haveTarget := a.walkTarget()
+	if following {
+		_, lx, lz, d, ok := a.playerPos(ctx, a.following)
+		if !ok || d < 8 { // standing next to them is no trouble
+			a.stillPos, a.stillSince = pos, time.Now()
+			return false
+		}
+		tx, tz, haveTarget = int(lx), int(lz), true
+	}
+	if time.Since(a.lastStuck) > 90*time.Second {
+		a.stuckCount = 0
+	}
+	a.stuckCount++
+	a.lastStuck = time.Now()
+	// In creative, walls and fences we may not break are simply flown over; and a pit or corner
+	// the bot could not walk out of once is flown out of the second time.
+	far := haveTarget && math.Hypot(float64(tx)-pos.X, float64(tz)-pos.Z) > a.flyAbove()
+	if a.creative && (far || a.stuckCount >= 2) {
+		fx, fz := flyOutTarget(pos, tx, tz, haveTarget)
+		if a.startFlight(ctx, fx, fz) {
+			a.log.Info("stuck: flying out", "x", int(pos.X), "z", int(pos.Z), "to_x", fx, "to_z", fz, "times", a.stuckCount)
+			a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
+			if following {
+				a.followAfter = a.following // after landing: keep up with them on foot
+			}
+			a.stillPos, a.stillSince = pos, time.Now()
+			return true
+		}
+	}
+	if following {
 		a.stillPos, a.stillSince = pos, time.Now()
-		return true
+		return false // walking: the follow goes on, the mod re-plans
 	}
 	angle := rand.Float64() * 2 * math.Pi
 	dist := 6 + rand.Float64()*4
@@ -217,7 +244,10 @@ func (a *Agent) roam(ctx context.Context) {
 	}
 	// Stepped out from under the trees: take off again for the same target.
 	if r := a.retryFlight; r != nil && !a.flying {
-		if math.Hypot(pos.X-float64(a.retryFrom[0]), pos.Z-float64(a.retryFrom[1])) < 2.5 || !busy {
+		// Out in the open, or the walk has ended. Right after the @goto the mod may not report the
+		// walk yet: a take-off then fails under the same roof and burns the retry.
+		if math.Hypot(pos.X-float64(a.retryFrom[0]), pos.Z-float64(a.retryFrom[1])) < 2.5 ||
+			(!busy && time.Since(a.retrySince) > 6*time.Second) {
 			a.retryFlight = nil
 			a.flightFailedAt = time.Time{}
 			if a.startFlight(ctx, r[0], r[1]) {
@@ -423,4 +453,23 @@ func (a *Agent) placesNote() string {
 	note := fmt.Sprintf("- твоя нора (вход): x=%d y=%d z=%d, %d блоков на %s\n", int(h.X), int(h.Y), int(h.Z),
 		int(math.Hypot(h.X-a.pos.X, h.Z-a.pos.Z)), explore.Direction(a.pos, h.X, h.Z))
 	return note + a.places.Describe(a.pos, 5)
+}
+
+// flyOutMin: a flight out of a pit goes at least this far, so the take-off has room to climb.
+const flyOutMin = 30
+
+// flyOutTarget is where a stuck bot flies: the target it was walking to, pushed out to at least
+// flyOutMin along the same line; without a target, a random point that far away.
+func flyOutTarget(pos explore.Pos, tx, tz int, haveTarget bool) (int, int) {
+	dx, dz := float64(tx)-pos.X, float64(tz)-pos.Z
+	d := math.Hypot(dx, dz)
+	if !haveTarget || d < 1 {
+		a := rand.Float64() * 2 * math.Pi
+		dx, dz, d = math.Cos(a), math.Sin(a), 1
+	}
+	if d >= flyOutMin {
+		return tx, tz
+	}
+	k := flyOutMin / d
+	return int(pos.X + dx*k), int(pos.Z + dz*k)
 }

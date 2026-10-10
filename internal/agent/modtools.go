@@ -449,6 +449,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 				if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err == nil {
 					a.retryFlight = &[2]int{a.flyX, a.flyZ}
 					a.retryFrom = [2]int{sx, sz}
+					a.retrySince = time.Now()
 					a.log.Info("flight: stepping out from under the roof", "cmd", cmd)
 					return false
 				}

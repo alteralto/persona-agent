@@ -29,9 +29,12 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 		return false
 	}
 	// "Стой тут" holds the bot for a minute: no flight shows in the meantime.
-	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Since(a.lastRequest) < 30*time.Second ||
-		time.Now().Before(a.lingerUntil) {
+	if time.Since(a.lastRequest) < 30*time.Second {
 		return false
+	}
+	// Staying a while next to people (a visit, a place, a sign): not just standing there.
+	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Now().Before(a.lingerUntil) {
+		return a.mingle(ctx)
 	}
 	a.lastActivity = time.Now()
 	// FlightShare > 0 (flight testing): that share of activities are flights, the rest as usual.
@@ -44,18 +47,24 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 		return true
 	}
 	// Now and then a fireworks show for whoever is around (creative only).
-	if a.othersNear > 0 && rand.IntN(10) == 0 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx) {
+	if a.othersNear > 0 && rand.IntN(5) == 0 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx) {
 		return true
+	}
+	// Shares: outing, signs, scouting, flight. Flying is the show people stop to watch, so in
+	// creative it gets the biggest share; signs are quiet and were most of the day before.
+	shares := [4]float64{0.35, 0.30, 0.20, 0.15}
+	if a.creative {
+		shares = [4]float64{0.25, 0.15, 0.20, 0.40}
 	}
 	r := rand.Float64()
 	switch {
-	case r < 0.35 && a.startOuting(ctx):
+	case r < shares[0] && a.startOuting(ctx):
 		return true
-	case r >= 0.35 && r < 0.65 && a.startSignTour(ctx):
+	case r >= shares[0] && r < shares[0]+shares[1] && a.startSignTour(ctx):
 		return true
-	case r >= 0.65 && r < 0.85 && a.startScout(ctx):
+	case r >= shares[0]+shares[1] && r < 1-shares[3] && a.startScout(ctx):
 		return true
-	case r >= 0.85 && a.startFlightShow(ctx):
+	case r >= 1-shares[3] && a.startFlightShow(ctx):
 		return true
 	}
 	// The drawn one was not possible (no signs left, no places yet): try the others.
@@ -277,4 +286,65 @@ func (a *Agent) dropScoutTarget(act *activity) {
 	}
 	a.places.MarkVisited(explore.ChunkOf(explore.Pos{X: float64(act.x), Z: float64(act.z)}))
 	a.savePlaces()
+}
+
+// mingleEvery: while he stays among people, one small thing of his own this often.
+const mingleEvery = 25 * time.Second
+
+// mingleTopics: what he starts a talk with, so the lines do not all come out the same.
+var mingleTopics = []string{
+	"спроси, что он сейчас делает или строит, и похвали по-хоббитски",
+	"позови его на чай в нору или угости чем-нибудь из своих запасов",
+	"предложи ему ракет для элитр — ты ведь наземный техник",
+	"расскажи коротко про место, которое ты недавно видел, и предложи показать",
+	"пожалуйся в шутку на что-нибудь хоббитское: на сквозняк, на криперов, на пустой чайник",
+	"спроси его совета по хозяйству: где взять бумагу, порох или хорошую еду",
+	"похвастайся, что научился летать на элитрах, и спроси, хочет ли он посмотреть фигуры",
+	"задай ему смешной вопрос о нём самом, по-соседски",
+}
+
+// mingle does one small thing with the players next to him: talks to the nearest one, steps
+// closer, or (in creative, when nobody asked him to stand still) puts on a little show.
+func (a *Agent) mingle(ctx context.Context) bool {
+	if a.othersNear == 0 || time.Since(a.lastMingle) < mingleEvery ||
+		time.Since(time.Unix(0, a.lastSpoke.Load())) < 12*time.Second {
+		return false
+	}
+	var near *seenPlayer
+	for _, p := range a.visiblePlayers(ctx) {
+		if p.dist <= visitNear && (near == nil || p.dist < near.dist) {
+			near = &p
+		}
+	}
+	if near == nil {
+		return false
+	}
+	a.lastMingle = time.Now()
+	free := time.Since(a.lastRequest) > 90*time.Second // "стой тут" a minute ago: words only
+	r := rand.Float64()
+	switch {
+	case free && a.creative && r < 0.15 && a.startFlightShow(ctx):
+		a.log.Info("mingle: show", "player", near.name)
+		return true
+	case free && a.creative && r < 0.22 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx):
+		a.log.Info("mingle: rocket", "player", near.name)
+		return true
+	case free && r < 0.40 && near.dist > 6:
+		k := (near.dist - 3.5) / near.dist
+		x, z := int(a.pos.X+(near.x-a.pos.X)*k), int(a.pos.Z+(near.z-a.pos.Z)*k)
+		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err == nil {
+			a.log.Info("mingle: steps closer", "player", near.name)
+		}
+	}
+	topic := mingleTopics[rand.IntN(len(mingleTopics))]
+	a.log.Info("mingle: talks", "player", near.name, "topic", topic)
+	a.lastSpoke.Store(time.Now().UnixNano())
+	a.enqueue(replyJob{
+		prompt: fmt.Sprintf("Рядом с тобой игрок %s, в %d блоках. Заговори с ним сам, по имени: %s. "+
+			"Одна живая фраза до 90 символов, в характере, не повторяй то, что уже говорил.",
+			spokenName(near.name), int(near.dist), topic),
+		history: append([]string(nil), a.history...),
+		at:      time.Now(),
+	})
+	return true
 }

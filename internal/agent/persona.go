@@ -38,7 +38,15 @@ const personaPrompt = `Ты — Пыхтун, хоббит-домосед в Min
 // noteSupplyCreative: in creative the rockets are handed over at once, not fetched.
 const noteSupplyCreative = "supply_creative"
 
+// noteChime: a line he was not named in, which he joins anyway.
+const noteChime = "chime"
+
+// noteAside: a line said to someone else, which he remarks on from the side.
+const noteAside = "aside"
+
 var actionNotes = map[string]string{
+	noteChime:          "к тебе не обращались, но ты рядом и слышал — вставь короткую реплику в разговор, по теме и в характере; ничего не обещай делать",
+	noteAside:          "это сказали не тебе, а другому — не отвечай за него и ничего не делай, а вставь словечко со стороны: неожиданное, смешное, по-хоббитски",
 	ActWait:            "ты стоишь на месте и никуда не идёшь — не предлагай идти за тобой и не обещай показать путь",
 	ActFollow:          "ты идёшь следом за игроком",
 	ActStop:            "ты остановился",

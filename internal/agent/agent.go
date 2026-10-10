@@ -105,7 +105,11 @@ type Agent struct {
 	lastTopic  int
 	stillPos   explore.Pos
 	stillSince time.Time
-	leading    bool // walking players to the burrow
+	stuckCount int // stuck spells in a row, a minute and a half apart at most
+	lastStuck  time.Time
+	lastChime  time.Time // the last time he joined a talk he was not named in
+	lastMingle time.Time // the last small thing he did among people (activity.go)
+	leading    bool      // walking players to the burrow
 
 	// Fork features (see modtools.go).
 	creative       bool // from getGameState when the fork reports it, else from config
@@ -120,6 +124,7 @@ type Agent struct {
 	roofRetries    int
 	retryFlight    *[2]int
 	retryFrom      [2]int
+	retrySince     time.Time // when it started walking out from under the roof
 	testLegOut     bool
 	flyX, flyZ     int
 	swimming       bool
@@ -347,9 +352,12 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 	if strings.EqualFold(msg.Nick, a.cfg.BotNick) || strings.HasPrefix(msg.Text, "@") {
 		return
 	}
+	start := time.Now()
 	fromBot := slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, msg.Nick) })
 	// Other AI characters talk to the bot without naming it; players must name it.
+	// Not named, he still joins the talk around him now and then, with words only.
 	if a.cfg.RequireMention && !fromBot && !a.mentioned(msg.Text) {
+		a.chimeIn(msg, start)
 		a.remember(msg)
 		return
 	}
@@ -372,7 +380,6 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		a.botReplies = 0
 	}
 
-	start := time.Now()
 	answers, err := a.laya.Decide(ctx, situation(a.cfg.BotNick, a.history, msg.Nick, msg.Text), Questions(a.cfg.BotNick))
 	if err != nil {
 		a.log.Warn("laya", "err", err)
@@ -733,3 +740,52 @@ func (a *Agent) lingerFor(d time.Duration) {
 }
 
 func round(f float64) float64 { return float64(int(f*1000)) / 1000 }
+
+// chimeEvery: at most one unasked remark in this long, so he joins the talk but does not take it over.
+const chimeEvery = 25 * time.Second
+
+// chimeIn answers a line he was not named in: always a question or a word to everyone, else
+// every other line or so. Words only: an unnamed line never makes him walk or fly.
+func (a *Agent) chimeIn(msg chatlog.Message, at time.Time) {
+	if time.Since(a.lastChime) < chimeEvery {
+		return
+	}
+	// Said to someone else: now and then a remark from the side, never an answer for them.
+	aside := addressedTo(msg.Text, a.cfg.OthersNames) || namesSomeone(msg.Text)
+	w := words(msg.Text)
+	if len(w) < 3 && !strings.Contains(msg.Text, "?") {
+		return // a scrap of speech recognition, not a line to answer
+	}
+	toAll := strings.Contains(msg.Text, "?") || slices.ContainsFunc(w, func(s string) bool {
+		return slices.Contains(toEveryone, s)
+	})
+	switch {
+	case aside && rand.IntN(3) != 0:
+		return
+	case !aside && !toAll && rand.IntN(2) == 0:
+		return
+	}
+	note := noteChime
+	if aside {
+		note = noteAside
+	}
+	a.lastChime = time.Now()
+	a.lastSpoke.Store(time.Now().UnixNano())
+	a.log.Info("chiming in", "nick", msg.Nick, "text", msg.Text, "aside", aside)
+	a.enqueue(replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: msg.Text, action: note,
+		places: a.placesNote(), creative: a.creative, at: at})
+}
+
+// toEveryone: words that open a line to everyone around, not to one player.
+var toEveryone = []string{"все", "всем", "кто", "ребят", "ребята", "народ", "люди", "привет", "здравствуйте", "хей", "эй"}
+
+// namesSomeone: the line opens with a name and a comma ("Боб, иди за мной"), so it is for that
+// one player; "ребят, ..." and "привет, ..." are for everyone.
+func namesSomeone(text string) bool {
+	head, _, ok := strings.Cut(text, ",")
+	if !ok {
+		return false
+	}
+	w := words(head)
+	return len(w) >= 1 && len(w) <= 2 && !slices.ContainsFunc(w, func(s string) bool { return slices.Contains(toEveryone, s) })
+}
