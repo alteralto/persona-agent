@@ -310,14 +310,25 @@ def main():
 
 
 def await_mod(gateway: JavaGateway) -> None:
-    """Retry the mod handshake every 3 s until the game is up; py4j's own tracebacks muted."""
+    """Keep the mod handshake alive: retry every 3 s until the game is up, then check every 5 s
+    and shake hands again after the game restarts (else the bot stops hearing players).
+    py4j's own tracebacks muted."""
     py4j_log = logging.getLogger("py4j")
     waiting = False
+    up = False
     while True:
         py4j_log.setLevel(logging.CRITICAL)
         try:
-            ok = gateway.entry_point.handshake()
+            if up:
+                gateway.jvm.java.lang.System.currentTimeMillis()  # the game is still there?
+            else:
+                ok = gateway.entry_point.handshake()
+                log.info("py4j callback server up; mod handshake: %s", ok)
+                up, waiting = True, False
         except Exception:
+            if up:
+                log.info("game gone; shaking hands again when it is back")
+                up = False
             if not waiting:
                 log.info("waiting for the game (mod py4j on 25333)")
                 waiting = True
@@ -325,8 +336,7 @@ def await_mod(gateway: JavaGateway) -> None:
             continue
         finally:
             py4j_log.setLevel(logging.WARNING)
-        log.info("py4j callback server up; mod handshake: %s", ok)
-        return
+        time.sleep(5)
 
 
 if __name__ == "__main__":
