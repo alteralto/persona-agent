@@ -30,7 +30,13 @@ func (a *Agent) idleTurn(ctx context.Context) {
 	if a.outing != nil || a.activity != nil || a.flying || !a.havePos {
 		return // nobody to talk to in the main menu
 	}
-	a.enqueue(replyJob{prompt: a.idlePrompt(), history: slices.Clone(a.history), at: time.Now()})
+	var near []string
+	for _, p := range a.visiblePlayers(ctx) {
+		if p.dist < visitNear {
+			near = append(near, p.name)
+		}
+	}
+	a.enqueue(replyJob{prompt: a.idlePrompt(near), history: slices.Clone(a.history), at: time.Now()})
 }
 
 func (a *Agent) startOuting(ctx context.Context) bool {

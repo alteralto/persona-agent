@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -65,4 +66,19 @@ func (s *Speaker) Say(ctx context.Context, text string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// Mood sets the avatar's face for a while (voice service /mood): "happy", "scared", "grumpy";
+// it goes back to neutral by itself. Fire and forget: a missing avatar is no error.
+func (s *Speaker) Mood(ctx context.Context, mood string, seconds int) {
+	body, _ := json.Marshal(map[string]any{"mood": mood, "seconds": seconds})
+	url := strings.TrimSuffix(s.url, "/say") + "/mood"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := s.http.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }

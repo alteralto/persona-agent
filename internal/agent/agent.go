@@ -416,20 +416,24 @@ func (a *Agent) enqueue(job replyJob) {
 }
 
 // idlePrompt asks for a remark of the bot's own; with companions around it opens a conversation.
-func (a *Agent) idlePrompt() string {
-	bots := a.nearbyBots()
-	if len(bots) == 0 {
-		return idlePrompt
-	}
+// idlePrompt is a line of the bot's own after a quiet spell. near: players in sight close by
+// (not bots), who it may talk to. A topic of its own every time: one fixed "nobody talked to
+// you for a while" prompt gave "Опять тихо..." three times in four minutes on a busy spawn.
+func (a *Agent) idlePrompt(near []string) string {
 	// A different topic each time, never the same twice in a row.
 	i := rand.IntN(len(idleTopics) - 1)
 	if i >= a.lastTopic {
 		i++
 	}
 	a.lastTopic = i
-	who := spokenName(bots[rand.IntN(len(bots))])
+	people := append(a.nearbyBots(), near...)
+	if len(people) == 0 {
+		return idlePrompt + " Тема: " + idleTopics[i] + "."
+	}
+	who := spokenName(people[rand.IntN(len(people))])
 	return "Рядом с тобой " + who + ". Обратись к " + who + " по имени. Тема: " + idleTopics[i] + ". " +
-		"Одна короткая фраза до 90 символов. Не выдумывай, что собеседник делает, если этого нет в чате."
+		"Одна короткая фраза до 90 символов. Не выдумывай, что собеседник делает, если этого нет в чате. " +
+		"Не говори, что вокруг тихо или никого нет."
 }
 
 var idleTopics = []string{
@@ -477,6 +481,10 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 	if action != ActWait {
 		a.outing = nil // an explicit request overrides the bot's own walk
 		a.leading = action == ActLead
+	}
+	switch action {
+	case ActSupply, ActLead, ActFollow:
+		a.mood("grumpy", 4) // grumbles at every errand, then does it
 	}
 	switch action {
 	case ActFollow:

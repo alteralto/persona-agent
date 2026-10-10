@@ -282,7 +282,15 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 		return false
 	}
 	a.flying, a.flightStarted = true, time.Now()
+	a.mood("scared", 30) // he is afraid of heights
 	return true
+}
+
+// mood sets the avatar's face for a while; nothing without the voice service.
+func (a *Agent) mood(name string, seconds int) {
+	if a.speaker != nil {
+		go a.speaker.Mood(context.Background(), name, seconds)
+	}
 }
 
 // leaderFlying reports whether the player the bot follows is flying an elytra right now.
@@ -343,6 +351,11 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
+		if st.Phase == "done" {
+			a.mood("happy", 6) // down safe
+		} else {
+			a.mood("neutral", 1)
+		}
 		if st.Phase != "failed" {
 			a.roofRetries = 0
 		}
@@ -536,6 +549,7 @@ func (a *Agent) checkWater(ctx context.Context) bool {
 	// The walk that led into the lake is dropped; companions and activities pick up after.
 	a.trip, a.outing, a.activity, a.following, a.leading = nil, nil, nil, "", false
 	a.swimming = true
+	a.mood("scared", 12)
 	a.log.Info("water: swimming to shore", "result", out)
 	return true
 }
@@ -558,6 +572,7 @@ func (a *Agent) salute(ctx context.Context) bool {
 		return false
 	}
 	a.log.Info("salute", "count", n, "result", text)
+	a.mood("happy", 15)
 	a.lingerFor(15 * time.Second) // stay and watch it
 	return true
 }
