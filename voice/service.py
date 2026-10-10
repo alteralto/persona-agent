@@ -252,9 +252,32 @@ def main():
         python_server_entry_point=GameCallback(hearing),
         start_callback_server=True,
     )
-    log.info("py4j callback server up; mod handshake: %s", gateway.entry_point.handshake())
+    # The game may start after this service (the control panel starts everything at once):
+    # reach the mod in the background and speak meanwhile. A handshake that failed here once
+    # left the process alive on the callback port and serving nothing.
+    threading.Thread(target=await_mod, args=(gateway,), daemon=True).start()
     log.info("speaking on %s, listening for /say on :%d", sd.query_devices(speaker.device)["name"], args.port)
     serve(args.port, speaker)
+
+
+def await_mod(gateway: JavaGateway) -> None:
+    """Retry the mod handshake every 3 s until the game is up; py4j's own tracebacks muted."""
+    py4j_log = logging.getLogger("py4j")
+    waiting = False
+    while True:
+        py4j_log.setLevel(logging.CRITICAL)
+        try:
+            ok = gateway.entry_point.handshake()
+        except Exception:
+            if not waiting:
+                log.info("waiting for the game (mod py4j on 25333)")
+                waiting = True
+            time.sleep(3)
+            continue
+        finally:
+            py4j_log.setLevel(logging.WARNING)
+        log.info("py4j callback server up; mod handshake: %s", ok)
+        return
 
 
 if __name__ == "__main__":
