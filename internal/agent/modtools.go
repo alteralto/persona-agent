@@ -419,34 +419,62 @@ func (a *Agent) joinFlyers(ctx context.Context) bool {
 	if !a.fork || a.flying || a.hovering || a.retryFlight != nil {
 		return false
 	}
+	// Whom to go up with: the one it follows; else the one it is with right now (visiting,
+	// talking to); else the nearest. One at a time -- two flying apart, it stays with its choice.
+	var pick *flyingPlayer
+	mine := false
+	partner := a.partner != "" && time.Since(a.partnerAt) < 3*time.Minute
 	for _, p := range a.playersInAir(ctx) {
-		mine := a.following != "" && strings.EqualFold(p.name, a.following)
-		if !mine && (p.dist > flyTogetherNear || time.Since(a.lastFlyTogether) < flyTogetherAgain ||
-			slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, p.name) })) {
+		if a.following != "" && strings.EqualFold(p.name, a.following) {
+			pick, mine = &p, true
+			break
+		}
+		if p.dist > flyTogetherNear || time.Since(a.lastFlyTogether) < flyTogetherAgain ||
+			slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, p.name) }) {
 			continue
 		}
-		// On an elytra whichever way they fly: beside a glider, circling round a creative flyer
-		// (the pilot orbits a slow leader). Creative flight only when the elytra cannot go up.
-		ok := !a.noFlight && a.startWingman(ctx, p.name)
-		if !ok && p.how == airHover && a.creative {
-			ok = a.startHover(ctx, p.name)
+		if pick == nil || partner && strings.EqualFold(p.name, a.partner) {
+			pick = &p
 		}
-		if !ok {
-			continue
-		}
-		a.lastFlyTogether = time.Now()
-		a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
-		a.mood("scared", 20)
+	}
+	if pick == nil {
+		return false
+	}
+	p := *pick
+	// Not obliged: a hobbit afraid of heights goes up with a companion, with anyone else about
+	// every other time, and says so either way.
+	if !mine && rand.IntN(2) == 0 {
+		a.lastFlyTogether = time.Now() // no asking itself again every two seconds
+		a.log.Info("flight: stays on the ground", "flyer", p.name)
 		a.enqueue(replyJob{
-			prompt: fmt.Sprintf("Игрок %s полетел, и ты сам взлетаешь следом, чтобы лететь рядом с ним. "+
-				"Скажи ему об этом одной короткой фразой до 90 символов, в характере: страшно, но весело.",
+			prompt: fmt.Sprintf("Игрок %s взлетел рядом с тобой. Ты решил не лететь следом — высоты боишься, "+
+				"лучше снизу посмотришь или помашешь. Скажи ему об этом одной короткой фразой до 90 символов, в характере.",
 				spokenName(p.name)),
 			history: append([]string(nil), a.history...),
 			at:      time.Now(),
 		})
-		return true
+		return false
 	}
-	return false
+	// On an elytra whichever way they fly: beside a glider, circling round a creative flyer
+	// (the pilot orbits a slow leader). Creative flight only when the elytra cannot go up.
+	ok := !a.noFlight && a.startWingman(ctx, p.name)
+	if !ok && p.how == airHover && a.creative {
+		ok = a.startHover(ctx, p.name)
+	}
+	if !ok {
+		return false
+	}
+	a.lastFlyTogether = time.Now()
+	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
+	a.mood("scared", 20)
+	a.enqueue(replyJob{
+		prompt: fmt.Sprintf("Игрок %s полетел, и ты сам взлетаешь следом, чтобы лететь рядом с ним. "+
+			"Скажи ему об этом одной короткой фразой до 90 символов, в характере: страшно, но весело.",
+			spokenName(p.name)),
+		history: append([]string(nil), a.history...),
+		at:      time.Now(),
+	})
+	return true
 }
 
 // startHover flies beside a creative flyer with creative flight (fork's hoverFollow).

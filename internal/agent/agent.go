@@ -116,6 +116,8 @@ type Agent struct {
 	lastViewer      time.Time // the last answer to the stream chat
 	celebrateAt     time.Time // a rocket for the landing, due a moment after touch-down
 	navGaveUp       time.Time // the pathfinder said the goal is unreachable
+	partner         string    // the player it is with right now: visiting, talking to
+	partnerAt       time.Time
 	hovering        bool      // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time // the last time it joined a player in the air
 	leading         bool      // walking players to the burrow
@@ -406,6 +408,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 	}
 	if !fromBot {
 		a.botReplies = 0
+		a.partner, a.partnerAt = msg.Nick, time.Now()
 	}
 
 	answers, err := a.laya.Decide(ctx, situation(a.cfg.BotNick, a.history, msg.Nick, msg.Text), Questions(a.cfg.BotNick))

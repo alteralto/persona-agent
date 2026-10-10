@@ -266,6 +266,7 @@ func (a *Agent) startVisit(ctx context.Context) bool {
 		return false
 	}
 	a.visited[best.name] = time.Now()
+	a.partner, a.partnerAt = best.name, time.Now()
 	a.activity = &activity{kind: "visit", x: x, z: z, label: best.name, started: time.Now()}
 	a.log.Info("activity: visiting", "player", best.name, "dist", int(best.dist))
 	return true
@@ -344,6 +345,7 @@ func (a *Agent) mingle(ctx context.Context) bool {
 		return false
 	}
 	a.lastMingle = time.Now()
+	a.partner, a.partnerAt = near.name, time.Now()
 	free := time.Since(a.lastRequest) > 90*time.Second // "стой тут" a minute ago: words only
 	r := rand.Float64()
 	switch {
