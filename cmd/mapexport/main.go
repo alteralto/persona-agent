@@ -2,6 +2,8 @@
 //
 //	go run ./cmd/mapexport                         # data/places.json -> data/map.html
 //	go run ./cmd/mapexport -in data/places.json -out map.html
+//	go run ./cmd/mapexport -xaero <xaero/minimap/Multiplayer_server>   # also home and finds as Xaero
+//	                                                                    # waypoints (the game closed)
 package main
 
 import (
@@ -17,6 +19,7 @@ import (
 func main() {
 	in := flag.String("in", "data/places.json", "the agent's places file")
 	out := flag.String("out", "data/map.html", "the page to write")
+	xaero := flag.String("xaero", "", "a server's folder of Xaero waypoints to put home and the finds into")
 	flag.Parse()
 	p, err := explore.LoadPlaces(*in)
 	if err != nil {
@@ -33,4 +36,12 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("wrote", *out)
+	if *xaero != "" {
+		n, err := worldmap.WriteXaero(*xaero, p)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println("xaero waypoint files written:", n)
+	}
 }

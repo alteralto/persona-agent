@@ -73,6 +73,8 @@ type Config struct {
 	FlightStyle string
 	// MarksDir: Xaero's waypoint folder (xaero/minimap); a waypoint named B there sends the bot.
 	MarksDir string
+	// XaeroServer: the server's folder under MarksDir that gets the bot's finds (not every world).
+	XaeroServer string
 	// MapPath: the map page the agent redraws every few minutes (empty: next to the places file).
 	MapPath string
 }
@@ -303,6 +305,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			if !gameDown {
 				gameDown = true
 				a.log.Warn("game connection lost, waiting", "err", err)
+				a.exportXaero() // the game is closed: Xaero will not write over the file now
 			}
 			continue
 		}

@@ -67,6 +67,7 @@ func main() {
 		AllowBreak:      env("ALLOW_BREAK", "false") == "true",
 		FlightStyle:     env("FLIGHT_STYLE", ""),
 		MarksDir:        env("MARKS_DIR", `F:\.tlauncher\legacy\Minecraft\game\xaero\minimap`),
+		XaeroServer:     env("XAERO_SERVER", "Multiplayer_agicraft.ru"),
 	}
 	llm := giga.New(creds, env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"), env("GIGACHAT_MODEL", "GigaChat-2"),
 		env("GIGACHAT_VERIFY_SSL", "false") == "true")

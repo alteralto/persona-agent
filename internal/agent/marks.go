@@ -188,3 +188,17 @@ func (a *Agent) saveMarksSeen() {
 		a.log.Warn("marks seen", "err", err)
 	}
 }
+
+// exportXaero puts home and the finds on Xaero's maps (worldmap.WriteXaero); they show up the
+// next time the player joins the server.
+func (a *Agent) exportXaero() {
+	if a.cfg.MarksDir == "" || a.cfg.XaeroServer == "" || a.places == nil {
+		return
+	}
+	n, err := worldmap.WriteXaero(filepath.Join(a.cfg.MarksDir, a.cfg.XaeroServer), a.places)
+	if err != nil {
+		a.log.Warn("xaero export", "err", err)
+		return
+	}
+	a.log.Info("xaero export", "files", n)
+}
