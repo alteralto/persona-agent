@@ -49,6 +49,31 @@ const stuckFor = 10 * time.Second
 // handsOffFor is how long the bot keeps out of the way after the player last steered by hand.
 const handsOffFor = 45 * time.Second
 
+// checkLobby holds the bot still in adventure mode: on a server that is the lobby with the
+// login prompt, where walking and flights only get in the player's way (and the password is
+// the player's to type). Once the server moves the bot into the world, it starts afresh there.
+func (a *Agent) checkLobby(ctx context.Context) bool {
+	if a.gameMode == "adventure" {
+		if !a.lobbyHeld {
+			a.lobbyHeld = true
+			a.log.Info("adventure mode (a server lobby?): holding still")
+			if a.trip != nil || a.outing != nil || a.activity != nil || a.flying {
+				if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+					a.log.Warn("lobby stop", "err", err)
+				}
+			}
+			a.trip, a.outing, a.activity, a.leading, a.retryFlight = nil, nil, nil, false, nil
+		}
+		return true
+	}
+	if a.lobbyHeld && a.modeKnown {
+		a.lobbyHeld = false
+		a.log.Info("out of the lobby", "mode", a.gameMode)
+		a.resetModState() // a new world: policy, mode and the flight kit again
+	}
+	return false
+}
+
 // checkHands notices the player steering this account by hand: it stops the bot's own walk
 // once and then holds every autonomous move (walks, flights, activities, follow) until the
 // mouse and the keys have been quiet for a while. Chat answers still go on.
@@ -153,6 +178,18 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.checkHands(ctx) {
 		return
 	}
+	// Game mode before anything that moves or remembers places: a lobby must not become home.
+	every := 30 * time.Second
+	if a.gameMode == "adventure" {
+		every = 5 * time.Second // notice the move into the real world quickly
+	}
+	if time.Since(a.modeChecked) > every {
+		a.modeChecked = time.Now()
+		a.refreshGameMode(ctx)
+	}
+	if a.checkLobby(ctx) {
+		return
+	}
 	if a.checkWater(ctx) {
 		return
 	}
@@ -173,10 +210,6 @@ func (a *Agent) roam(ctx context.Context) {
 	}
 	if !a.protected && a.cfg.ProtectRadius > 0 {
 		a.protectBuilds(ctx)
-	}
-	if time.Since(a.modeChecked) > 30*time.Second {
-		a.modeChecked = time.Now()
-		a.refreshGameMode(ctx)
 	}
 	// Stepped out from under the trees: take off again for the same target.
 	if r := a.retryFlight; r != nil && !a.flying {

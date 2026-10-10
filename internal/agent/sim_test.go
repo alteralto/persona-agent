@@ -464,3 +464,21 @@ func TestSimSaluteOnRequest(t *testing.T) {
 	r.waitFor("salute", 4*time.Second, func() bool { return r.w.Has("salute", "") })
 	r.waitFor("a reply", 4*time.Second, func() bool { return r.w.Count("say", "") >= 1 })
 }
+
+// A server lobby (adventure, a login prompt): the bot holds still; moved into the world, it
+// starts as usual there.
+func TestSimLobbyHoldsStill(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "adventure", Fork: true, FreeSlots: 10}, func(c *agent.Config) {
+		c.ActivityEvery = 200 * time.Millisecond
+		c.FlightShare = 1
+	})
+	r.w.AddPlayer("Alex", 8, 0)
+	r.waitFor("lobby noticed", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "holding still") })
+	time.Sleep(1500 * time.Millisecond)
+	if r.w.Has("fly", "") || r.w.Has("cmd", "@goto") || r.w.Has("tool", "creativeGive") {
+		t.Errorf("moved in the lobby")
+	}
+	r.w.SetMode("creative")
+	r.waitFor("out of the lobby", 8*time.Second, func() bool { return strings.Contains(r.log.String(), "out of the lobby") })
+	r.waitFor("flight kit in the world", 6*time.Second, func() bool { return r.w.Has("tool", "creativeGive") })
+}

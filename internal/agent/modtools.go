@@ -68,10 +68,10 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 		}
 	}
 	creative := st.Self.GameMode == "creative"
-	if creative != a.creative || !a.modeKnown {
+	if st.Self.GameMode != a.gameMode || !a.modeKnown {
 		a.log.Info("game mode", "mode", st.Self.GameMode)
 	}
-	a.creative, a.modeKnown = creative, true
+	a.creative, a.modeKnown, a.gameMode = creative, true, st.Self.GameMode
 
 	// On our own server the bot plays in creative: ask for it when the server put us in survival.
 	if a.cfg.AutoCreative && st.Self.GameMode == "survival" && time.Since(a.creativeAsked) > time.Minute {

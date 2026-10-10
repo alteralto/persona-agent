@@ -122,8 +122,12 @@ type Agent struct {
 	outOfWorld     bool
 	// The player steers this account by hand (the mod reports their last mouse or key input):
 	// manualMs is how long ago, -1 for never; handHeld while the bot keeps out of the way.
-	manualMs        int64
-	handHeld        bool
+	manualMs int64
+	handHeld bool
+	// gameMode as the mod reports it; adventure is a server lobby (a login screen): the bot holds
+	// still there (lobbyHeld) until the server moves it into the real world.
+	gameMode        string
+	lobbyHeld       bool
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time
