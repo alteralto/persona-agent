@@ -366,7 +366,8 @@ func (w *World) Handler() http.Handler {
 }
 
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
-	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true}
+	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true,
+	"salute": true, "saluteStatus": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
@@ -465,6 +466,15 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		w.swimTo, w.swimming = w.shoreLocked(), true
 		w.logLocked("swim", fmt.Sprintf("%d %d", int(w.swimTo[0]), int(w.swimTo[1])))
 		return map[string]any{"phase": "swimming"}, false
+	case "salute":
+		if w.opt.Mode != "creative" {
+			return map[string]any{"phase": "failed", "reason": "not creative"}, false
+		}
+		n := intArg(args, "count", 1)
+		w.logLocked("salute", fmt.Sprint(n))
+		return map[string]any{"phase": "firing", "fired": 0, "total": n}, false
+	case "saluteStatus":
+		return map[string]any{"phase": "done", "reason": "done"}, false
 	case "swimStatus":
 		phase := "done"
 		if w.swimming {

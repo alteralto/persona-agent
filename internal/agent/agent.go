@@ -530,6 +530,9 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		default:
 			cmd = "@give " + nick + " paper 3"
 		}
+	case ActSalute:
+		a.salute(ctx)
+		return
 	case ActFly, ActFlyLow:
 		a.trip, a.following = nil, ""
 		// "Полетели вместе" from someone far away: fly to them, not off somewhere else.

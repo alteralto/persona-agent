@@ -38,6 +38,10 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	if a.cfg.FlightShare > 0 && rand.Float64() < a.cfg.FlightShare && a.startFlightShow(ctx) {
 		return true
 	}
+	// Now and then a fireworks show for whoever is around (creative only).
+	if a.othersNear > 0 && rand.IntN(10) == 0 && a.startSaluteShow(ctx) {
+		return true
+	}
 	r := rand.Float64()
 	switch {
 	case r < 0.35 && a.startOuting(ctx):
@@ -117,6 +121,20 @@ func (a *Agent) startFlightShow(ctx context.Context) bool {
 	a.enqueue(replyJob{
 		prompt: "Ты сам решил полетать: " + how + ". Скажи об этом одной короткой фразой до 90 символов, в характере.",
 		at:     time.Now(),
+	})
+	return true
+}
+
+// startSaluteShow launches a fireworks show on the bot's own and says so.
+func (a *Agent) startSaluteShow(ctx context.Context) bool {
+	if !a.salute(ctx) {
+		return false
+	}
+	a.log.Info("activity: salute")
+	a.enqueue(replyJob{
+		prompt: "Ты сам решил устроить небольшой салют: запускаешь цветные фейерверки. " +
+			"Скажи об этом одной короткой фразой до 90 символов, в характере.",
+		at: time.Now(),
 	})
 	return true
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
@@ -527,5 +528,27 @@ func (a *Agent) checkWater(ctx context.Context) bool {
 	a.trip, a.outing, a.activity, a.following, a.leading = nil, nil, nil, "", false
 	a.swimming = true
 	a.log.Info("water: swimming to shore", "result", out)
+	return true
+}
+
+// salute launches a fireworks show from the ground (fork, creative): six to eight colored
+// rockets in a fan ahead. The bot stops walking first, so the pathfinder does not turn it away.
+func (a *Agent) salute(ctx context.Context) bool {
+	if !a.fork || !a.creative || a.flying {
+		a.log.Info("salute skipped", "fork", a.fork, "creative", a.creative, "flying", a.flying)
+		return false
+	}
+	a.trip, a.activity, a.outing = nil, nil, nil
+	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+		a.log.Warn("salute stop", "err", err)
+	}
+	n := 6 + rand.IntN(3)
+	text, err := a.mc.Call(ctx, "salute", map[string]any{"count": n})
+	if err != nil {
+		a.log.Warn("salute", "err", err)
+		return false
+	}
+	a.log.Info("salute", "count", n, "result", text)
+	a.lingerFor(15 * time.Second) // stay and watch it
 	return true
 }

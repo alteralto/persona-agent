@@ -454,3 +454,13 @@ func TestSimLowLevelFlightOnRequest(t *testing.T) {
 		t.Errorf("a plain flight went low-level")
 	}
 }
+
+// "Устрой салют" in creative starts a fireworks show; in survival there is nothing to make it from.
+func TestSimSaluteOnRequest(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, устрой салют!")
+	r.waitFor("salute", 4*time.Second, func() bool { return r.w.Has("salute", "") })
+	r.waitFor("a reply", 4*time.Second, func() bool { return r.w.Count("say", "") >= 1 })
+}
