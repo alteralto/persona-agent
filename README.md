@@ -49,6 +49,12 @@ in about two seconds, most of it speech recognition.
 | fly on an elytra | fork tool `flyTo`: equip, take off, climb on rockets, glide down near the target |
 | creative and survival | game mode from `getGameState`; creative takes items from the creative tab |
 
+## Flying
+
+The character flies on elytra through the fork's pilot: normal flights, low-level, aerobatic
+figures and routes round places, with plane-like landings. Modes, styles and safety, with diagrams:
+[docs/elytra-pilot.md](https://github.com/alteralto/unionclef/blob/pyhtun/docs/elytra-pilot.md).
+
 ## Self-improvement loop
 
 Every decision goes to `data/decisions.jsonl` (with a *repeat* flag when the same player asks
