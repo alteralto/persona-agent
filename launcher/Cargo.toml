@@ -1,0 +1,12 @@
+[package]
+name = "pult"
+version = "0.1.0"
+edition = "2024"
+description = "Control panel for the Pyhtun Minecraft agent: start, stop, watch"
+
+[profile.release]
+opt-level = 2
+strip = true
+
+[dependencies]
+eframe = "0.36.2"

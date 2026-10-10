@@ -117,4 +117,13 @@ go build -o bin/pyhtun.exe ./cmd/agent
 scripts/run-agent.sh
 ```
 
+Or without a terminal: the control panel in `launcher/` (Rust, egui) shows what is up (the game,
+the mod, Laya, the voice service, the agent), starts and stops each of them or all at once, switches
+the agent between normal play and flight testing, sets home, and can move Laya to the CPU to leave
+the GPU to the game. Services keep running when the panel is closed.
+
+```bash
+cd launcher && cargo build --release   # then run pult.exe; it finds this folder by go.mod
+```
+
 The orchestrator is in Go for now; a Rust port is planned.
