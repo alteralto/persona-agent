@@ -336,7 +336,7 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	case free && a.creative && r < 0.55 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx):
 		a.log.Info("mingle: rocket", "player", near.name)
 		return true
-	case free && r < 0.40 && near.dist > 6:
+	case free && r < 0.40 && near.dist > 6 && a.following == "": // a walk over would end the follow
 		k := (near.dist - 3.5) / near.dist
 		x, z := int(a.pos.X+(near.x-a.pos.X)*k), int(a.pos.Z+(near.z-a.pos.Z)*k)
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err == nil {
@@ -361,9 +361,12 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	return true
 }
 
-// celebrate sends up one pretty rocket for a bright moment, at most every rocketShowEvery.
+// celebrate sends up one pretty rocket for a bright moment, at most every rocketShowEvery. A
+// rocket stops the bot to aim at the ground, so not while it walks somewhere: a rocket for joy
+// must not cost the walk.
 func (a *Agent) celebrate(ctx context.Context, why string) {
-	if !a.creative || time.Since(a.lastRocketShow) < rocketShowEvery {
+	if !a.creative || time.Since(a.lastRocketShow) < rocketShowEvery ||
+		a.trip != nil || a.outing != nil || a.activity != nil || a.leading || a.retryFlight != nil {
 		return
 	}
 	if a.salute(ctx, 1) {
