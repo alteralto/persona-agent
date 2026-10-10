@@ -52,11 +52,18 @@ struct Settings {
     home_x: String,
     home_z: String,
     laya_cpu: bool, // Laya on the CPU leaves the whole GPU to the game
+    flight_style: String, // "" mixes them; normal, low, tricks, route fix one
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { test_mode: false, home_x: "-471".into(), home_z: "-183".into(), laya_cpu: false }
+        Settings {
+            test_mode: false,
+            home_x: "-471".into(),
+            home_z: "-183".into(),
+            laya_cpu: false,
+            flight_style: String::new(),
+        }
     }
 }
 
@@ -228,6 +235,15 @@ impl eframe::App for Pult {
                 ui.add(egui::TextEdit::singleline(&mut self.settings.home_x).desired_width(56.0));
                 ui.label("z");
                 ui.add(egui::TextEdit::singleline(&mut self.settings.home_z).desired_width(56.0));
+                ui.add_space(12.0);
+                let styles = [("", "смешанные"), ("normal", "обычные"), ("low", "бреющий"), ("tricks", "пилотаж"), ("route", "облёт")];
+                let shown = styles.iter().find(|(k, _)| *k == self.settings.flight_style).map(|(_, v)| *v).unwrap_or("смешанные");
+                ui.label("Полёты:");
+                egui::ComboBox::from_id_salt("style").selected_text(shown).show_ui(ui, |ui| {
+                    for (k, v) in styles {
+                        ui.selectable_value(&mut self.settings.flight_style, k.to_string(), v);
+                    }
+                });
                 ui.add_space(12.0);
                 ui.checkbox(&mut self.settings.laya_cpu, "Laya на процессоре").on_hover_text(
                     "Вся видеокарта остаётся игре (больше FPS), решения чуть медленнее. Применится при запуске Laya.",
@@ -418,6 +434,9 @@ fn start_agent(root: &Path, s: &Settings) -> String {
     if s.test_mode {
         cmd.env("FLIGHT_SHARE", "0.8").env("ACTIVITY_EVERY", "30s");
     }
+    if !s.flight_style.is_empty() {
+        cmd.env("FLIGHT_STYLE", &s.flight_style);
+    }
     if let Err(e) = cmd.spawn() {
         return format!("агент не запустился: {e}");
     }
@@ -569,6 +588,7 @@ fn load_settings(root: &Path) -> Settings {
             Some(("home_x", v)) => s.home_x = v.to_string(),
             Some(("home_z", v)) => s.home_z = v.to_string(),
             Some(("laya_cpu", v)) => s.laya_cpu = v == "1",
+            Some(("flight_style", v)) => s.flight_style = v.to_string(),
             _ => {}
         }
     }
@@ -578,11 +598,12 @@ fn load_settings(root: &Path) -> Settings {
 fn save_settings(root: &Path, s: &Settings) {
     let b = |v: bool| if v { "1" } else { "0" };
     let text = format!(
-        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\n",
+        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\n",
         b(s.test_mode),
         s.home_x.trim(),
         s.home_z.trim(),
-        b(s.laya_cpu)
+        b(s.laya_cpu),
+        s.flight_style
     );
     let _ = fs::create_dir_all(root.join("data"));
     let _ = fs::write(settings_path(root), text);
