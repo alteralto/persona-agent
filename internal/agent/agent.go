@@ -141,7 +141,7 @@ type Agent struct {
 	// most every rocketShowEvery.
 	lastRocketShow time.Time
 	marksChecked   time.Time
-	marksSeen      map[mark]bool
+	marksSeen      map[string]bool
 	// The flight being flown, for the map: its style and points every couple of seconds.
 	track      [][2]int
 	trackStyle string

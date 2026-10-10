@@ -24,14 +24,22 @@ var markNames = []string{"b", "б", "пыхтун", "цель", "bot"}
 
 // mark is a waypoint for the bot, as last read.
 type mark struct {
-	name string
-	x, z int
+	name  string
+	x, z  int
+	fresh bool // its file changed in the last markFresh: just put on the map
+}
+
+// markBase is a waypoint name without the counter Xaero adds: "цель_1", "B 2" -> "цель", "b".
+func markBase(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	return strings.TrimRight(strings.TrimRight(n, "0123456789"), "_ -#")
 }
 
 const (
 	markCheckEvery = 3 * time.Second
 	markTimeout    = 4 * time.Minute // a long flight or walk to a mark
 	markStay       = 2 * time.Minute
+	markFresh      = 10 * time.Minute // on the first look, newer marks count as new
 )
 
 // readMarks returns the waypoints for the bot in every Xaero waypoint file under dir.
@@ -45,9 +53,13 @@ func readMarks(dir string) []mark {
 		if err != nil {
 			return nil
 		}
+		var fileTime time.Time
+		if info, err := d.Info(); err == nil {
+			fileTime = info.ModTime()
+		}
 		for _, line := range strings.Split(string(data), "\n") {
 			f := strings.Split(strings.TrimSpace(line), ":")
-			if len(f) < 6 || f[0] != "waypoint" || !slices.Contains(markNames, strings.ToLower(f[1])) {
+			if len(f) < 6 || f[0] != "waypoint" || !slices.Contains(markNames, markBase(f[1])) {
 				continue
 			}
 			x, ex := strconv.Atoi(f[3])
@@ -55,7 +67,7 @@ func readMarks(dir string) []mark {
 			if ex != nil || ez != nil {
 				continue
 			}
-			out = append(out, mark{name: f[1], x: x, z: z})
+			out = append(out, mark{name: f[1], x: x, z: z, fresh: time.Since(fileTime) < markFresh})
 		}
 		return nil
 	})
@@ -71,19 +83,35 @@ func (a *Agent) checkMarks(ctx context.Context) bool {
 	}
 	a.marksChecked = time.Now()
 	marks := readMarks(a.cfg.MarksDir)
-	if a.marksSeen == nil {
-		a.marksSeen = map[mark]bool{}
-		for _, m := range marks {
-			a.marksSeen[m] = true
+	first := a.marksSeen == nil
+	if first {
+		// Marks handled before a restart are kept next to the places file; without that, only
+		// marks put on the map in the last few minutes are new.
+		a.marksSeen = map[string]bool{}
+		if raw, err := os.ReadFile(a.marksPath()); err == nil {
+			for _, k := range strings.Split(string(raw), "\n") {
+				if k = strings.TrimSpace(k); k != "" {
+					a.marksSeen[k] = true
+				}
+			}
+		} else {
+			for _, m := range marks {
+				if !m.fresh {
+					a.marksSeen[m.key()] = true
+				}
+			}
 		}
-		return false
 	}
 	for _, m := range marks {
-		if a.marksSeen[m] {
+		if a.marksSeen[m.key()] {
 			continue
 		}
-		a.marksSeen[m] = true
+		a.marksSeen[m.key()] = true
+		a.saveMarksSeen()
 		return a.goToMark(ctx, m)
+	}
+	if first {
+		a.saveMarksSeen()
 	}
 	return false
 }
@@ -141,5 +169,22 @@ func (a *Agent) writeMap() {
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		a.log.Warn("map", "err", err)
+	}
+}
+
+func (m mark) key() string { return fmt.Sprintf("%s:%d:%d", m.name, m.x, m.z) }
+
+func (a *Agent) marksPath() string {
+	return filepath.Join(filepath.Dir(a.cfg.PlacesPath), "marks-seen.txt")
+}
+
+func (a *Agent) saveMarksSeen() {
+	keys := make([]string, 0, len(a.marksSeen))
+	for k := range a.marksSeen {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	if err := os.WriteFile(a.marksPath(), []byte(strings.Join(keys, "\n")+"\n"), 0o644); err != nil {
+		a.log.Warn("marks seen", "err", err)
 	}
 }

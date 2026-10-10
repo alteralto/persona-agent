@@ -526,6 +526,10 @@ func TestSimMarkOnTheMap(t *testing.T) {
 	if err := os.WriteFile(wp, []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	hourAgo := time.Now().Add(-time.Hour) // put on the map long before the start
+	if err := os.Chtimes(wp, hourAgo, hourAgo); err != nil {
+		t.Fatal(err)
+	}
 	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) { c.MarksDir = dir })
 	r.w.AddPlayer("Alex", 8, 0)
 	r.ready()
