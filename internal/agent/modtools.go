@@ -290,12 +290,13 @@ func (a *Agent) pickStyle() string {
 	case styleNormal, styleLow, styleTricks, styleRoute:
 		return a.cfg.FlightStyle
 	}
-	switch r := rand.IntN(10); {
-	case r < 4:
+	// Low flight is the one that looks best from the ground: the biggest share.
+	switch r := rand.IntN(20); {
+	case r < 5:
 		return styleNormal
-	case r < 6:
+	case r < 12:
 		return styleLow
-	case r < 8:
+	case r < 17:
 		return styleTricks
 	default:
 		return styleRoute

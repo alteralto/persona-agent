@@ -22,8 +22,10 @@ var (
 // Parse extracts nick and text from one chat line; ok=false for system lines.
 func Parse(line string) (Message, bool) {
 	line = strings.TrimSpace(formatCodes.ReplaceAllString(line, ""))
-	if strings.HasPrefix(line, "[AutoClef]") {
-		return Message{}, false // the mod's own status lines
+	for _, mod := range []string{"[AutoClef]", "[Tungsten]", "[Baritone]"} {
+		if strings.HasPrefix(line, mod) {
+			return Message{}, false // the mods' own status lines ("MovementQueue: off path ...")
+		}
 	}
 	for _, re := range []*regexp.Regexp{vanilla, plugin} {
 		if m := re.FindStringSubmatch(line); m != nil {

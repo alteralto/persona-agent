@@ -243,6 +243,9 @@ func (a *Agent) roam(ctx context.Context) {
 		a.protectBuilds(ctx)
 	}
 	// Stepped out from under the trees: take off again for the same target.
+	if a.retryFlight != nil && time.Since(a.retrySince) > 40*time.Second {
+		a.retryFlight = nil // never got out from under it: give up, it holds back everything else
+	}
 	if r := a.retryFlight; r != nil && !a.flying {
 		// Out in the open, or the walk has ended. Right after the @goto the mod may not report the
 		// walk yet: a take-off then fails under the same roof and burns the retry.

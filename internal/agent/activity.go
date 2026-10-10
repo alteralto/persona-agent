@@ -25,7 +25,9 @@ const activityTimeout = 90 * time.Second
 
 // maybeActivity starts an activity when nobody has asked the bot for anything lately.
 func (a *Agent) maybeActivity(ctx context.Context) bool {
-	if a.cfg.ActivityEvery <= 0 || a.outing != nil || a.activity != nil || a.flying || a.trip != nil || !a.havePos {
+	// retryFlight: walking out from under a roof to take off again; a new plan now would cancel it.
+	if a.cfg.ActivityEvery <= 0 || a.outing != nil || a.activity != nil || a.flying || a.trip != nil || !a.havePos ||
+		a.retryFlight != nil {
 		return false
 	}
 	// "Стой тут" holds the bot for a minute: no flight shows in the meantime.
@@ -54,7 +56,7 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	// creative it gets the biggest share; signs are quiet and were most of the day before.
 	shares := [4]float64{0.35, 0.30, 0.20, 0.15}
 	if a.creative {
-		shares = [4]float64{0.25, 0.15, 0.20, 0.40}
+		shares = [4]float64{0.20, 0.10, 0.20, 0.50}
 	}
 	r := rand.Float64()
 	switch {

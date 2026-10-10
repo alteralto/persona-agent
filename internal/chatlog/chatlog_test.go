@@ -19,6 +19,7 @@ func TestParse(t *testing.T) {
 		{"<Steve>   ", Message{}, false},
 		{"", Message{}, false},
 		{"§2§l§o[AutoClef] §rNew kill: BaDumTss -> Barrrrracuda", Message{}, false},
+		{"§2§l§o[Tungsten] §rMovementQueue: off path (3,1) at -484,25 — replanning from here", Message{}, false},
 	}
 	for _, c := range cases {
 		got, ok := Parse(c.line)
