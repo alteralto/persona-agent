@@ -47,7 +47,7 @@ func (a *Agent) position(ctx context.Context) (explore.Pos, bool, error) {
 const stuckFor = 10 * time.Second
 
 // handsOffFor is how long the bot keeps out of the way after the player last steered by hand.
-const handsOffFor = 10 * time.Second // a few seconds with no WASD: he walks on his own again
+const handsOffFor = 5 * time.Second // a few seconds with no WASD: he walks on his own again
 
 // checkLobby holds the bot still in adventure mode: on a server that is the lobby with the
 // login prompt, where walking and flights only get in the player's way (and the password is
