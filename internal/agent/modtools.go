@@ -552,7 +552,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		if st.Phase == "done" {
 			a.mood("happy", 6) // down safe
 			// Now and then one pretty rocket on landing, for the joy of it.
-			a.celebrate(ctx, "landing")
+			a.celebrateAt = time.Now().Add(3 * time.Second) // once the feet are on the ground
 		} else {
 			a.mood("neutral", 1)
 		}
@@ -772,6 +772,12 @@ func (a *Agent) salute(ctx context.Context, n int) bool {
 		return false
 	}
 	a.log.Info("salute", "count", n, "result", text)
+	var st struct {
+		Phase string `json:"phase"`
+	}
+	if json.Unmarshal([]byte(text), &st) == nil && st.Phase == "failed" {
+		return false // not on the ground, no rockets: no show, nothing to stand and watch
+	}
 	a.lastRocketShow = time.Now()
 	a.mood("happy", 15)
 	a.lingerFor(15 * time.Second) // stay and watch it

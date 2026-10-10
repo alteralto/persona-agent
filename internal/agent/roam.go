@@ -279,6 +279,10 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.checkHover(ctx) {
 		return
 	}
+	if !a.celebrateAt.IsZero() && time.Now().After(a.celebrateAt) && !a.flying {
+		a.celebrateAt = time.Time{}
+		a.celebrate(ctx, "landing")
+	}
 	if a.followAfter != "" && !a.flying && !a.hovering { // flew beside a player: keep up on foot
 		nick := a.followAfter
 		a.followAfter = ""

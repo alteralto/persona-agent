@@ -114,6 +114,7 @@ type Agent struct {
 	lastMingle      time.Time // the last small thing he did among people (activity.go)
 	lastTopicMingle int
 	lastViewer      time.Time // the last answer to the stream chat
+	celebrateAt     time.Time // a rocket for the landing, due a moment after touch-down
 	hovering        bool      // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time // the last time it joined a player in the air
 	leading         bool      // walking players to the burrow
