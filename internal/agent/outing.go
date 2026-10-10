@@ -164,6 +164,9 @@ func (a *Agent) flyShowOff(ctx context.Context, style string) bool {
 		home = a.testLegOut && fromHome > 40
 		a.testLegOut = !home
 	}
+	if style == styleTricks && fromHome < 400 {
+		home = false // figures need a long leg: the short way home has no room for them
+	}
 	if home {
 		x, z = int(cx), int(cz)
 	} else if style != styleTricks && a.cfg.FlightShare == 0 && a.places != nil {
