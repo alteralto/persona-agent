@@ -254,6 +254,7 @@ func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) boo
 	if a.places != nil && a.places.Home != nil {
 		y = int(a.places.Home.Y)
 	}
+	a.lastOpts = o // a take-off that fails under a roof is retried in the same style
 	if !a.takeOff(ctx, "flyTo", o.args(map[string]any{"x": x, "y": y, "z": z})) {
 		return false
 	}

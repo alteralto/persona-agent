@@ -249,11 +249,12 @@ func (a *Agent) roam(ctx context.Context) {
 	if r := a.retryFlight; r != nil && !a.flying {
 		// Out in the open, or the walk has ended. Right after the @goto the mod may not report the
 		// walk yet: a take-off then fails under the same roof and burns the retry.
-		if math.Hypot(pos.X-float64(a.retryFrom[0]), pos.Z-float64(a.retryFrom[1])) < 2.5 ||
+		// The open-sky column itself, not the roof next to it.
+		if math.Hypot(pos.X-float64(a.retryFrom[0])-0.5, pos.Z-float64(a.retryFrom[1])-0.5) < 1.2 ||
 			(!busy && time.Since(a.retrySince) > 6*time.Second) {
 			a.retryFlight = nil
 			a.flightFailedAt = time.Time{}
-			if a.startFlight(ctx, r[0], r[1]) {
+			if a.startFlightOpts(ctx, r[0], r[1], a.lastOpts) {
 				return
 			}
 		}

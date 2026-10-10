@@ -129,7 +129,8 @@ type Agent struct {
 	roofRetries    int
 	retryFlight    *[2]int
 	retryFrom      [2]int
-	retrySince     time.Time // when it started walking out from under the roof
+	retrySince     time.Time  // when it started walking out from under the roof
+	lastOpts       flightOpts // the style of the last take-off asked for
 	testLegOut     bool
 	flyX, flyZ     int
 	swimming       bool
