@@ -329,6 +329,8 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 	if a.creative && !a.flightKit {
 		a.tidyInventory(ctx)
 		a.flightKit = a.creativeGive(ctx, "elytra", 1) && a.creativeGive(ctx, "firework_rocket", 64)
+		// A sword too: mob defense takes the best weapon carried, else it fights bare-handed.
+		a.creativeGive(ctx, "netherite_sword", 1)
 	}
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("flight stop walk", "err", err)
