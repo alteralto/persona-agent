@@ -31,18 +31,51 @@ func (a *Agent) position(ctx context.Context) (explore.Pos, bool, error) {
 	if err != nil {
 		return explore.Pos{}, false, err
 	}
-	var st struct {
-		Pos  string `json:"pos"`
-		Busy bool   `json:"busy"`
-	}
+	st := struct {
+		Pos    string `json:"pos"`
+		Busy   bool   `json:"busy"`
+		Manual int64  `json:"manualMs"`
+	}{Manual: -1} // an older fork jar does not report it
 	if err := json.Unmarshal([]byte(text), &st); err != nil {
 		return explore.Pos{}, false, err
 	}
+	a.manualMs = st.Manual
 	pos, err := explore.ParsePos(st.Pos)
 	return pos, st.Busy, err
 }
 
 const stuckFor = 10 * time.Second
+
+// handsOffFor is how long the bot keeps out of the way after the player last steered by hand.
+const handsOffFor = 45 * time.Second
+
+// checkHands notices the player steering this account by hand: it stops the bot's own walk
+// once and then holds every autonomous move (walks, flights, activities, follow) until the
+// mouse and the keys have been quiet for a while. Chat answers still go on.
+func (a *Agent) checkHands(ctx context.Context) bool {
+	hands := a.manualMs >= 0 && a.manualMs < handsOffFor.Milliseconds()
+	if !hands {
+		if a.handHeld {
+			a.handHeld = false
+			a.log.Info("hands off: back to own moves")
+		}
+		return false
+	}
+	if !a.handHeld {
+		a.handHeld = true
+		a.log.Info("player steers by hand: keeping out of the way") // a follow resumes when the hands are off
+		if a.trip != nil || a.outing != nil || a.activity != nil || a.leading || a.following != "" {
+			if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
+				a.log.Warn("hands stop", "err", err)
+			}
+		}
+		a.trip, a.outing, a.activity, a.leading, a.retryFlight = nil, nil, nil, false, nil
+	}
+	if a.flying {
+		a.checkFlight(ctx) // the mod lets go of the flight itself ("by hand"): note it
+	}
+	return true
+}
 
 // walkTarget is where the current walk is heading, if any.
 func (a *Agent) walkTarget() (int, int, bool) {
@@ -116,6 +149,9 @@ func (a *Agent) roam(ctx context.Context) {
 	a.pos, a.havePos = pos, true
 	if a.leading && a.places.Home != nil && math.Hypot(pos.X-a.places.Home.X, pos.Z-a.places.Home.Z) < 5 {
 		a.leading = false // brought them home
+	}
+	if a.checkHands(ctx) {
+		return
 	}
 	if a.checkWater(ctx) {
 		return

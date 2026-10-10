@@ -415,3 +415,26 @@ func TestSimWingmanFollowsFlyingPlayer(t *testing.T) {
 	r.waitFor("landed", 4*time.Second, func() bool { return r.w.Has("land", "") })
 	r.waitFor("on foot again", 4*time.Second, func() bool { return r.w.Count("cmd", "@follow Alex") >= 2 })
 }
+
+// The player grabs the mouse mid-flight: the bot lets go, starts no walk or new flight while the
+// hands are on, and does not walk to the flight's target afterwards.
+func TestSimHandTakeOverHoldsTheBot(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, nil)
+	r.w.AddPlayer("Alex", 300, 40)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("take-off", 3*time.Second, func() bool { return r.w.Has("fly", "300 40") })
+	r.w.SteerByHand()
+	r.waitFor("hands noticed", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "player steers by hand") })
+	gotos, flights, follows := r.w.Count("cmd", "@goto"), r.w.Count("fly", ""), r.w.Count("cmd", "@follow")
+	time.Sleep(2 * time.Second)
+	if n := r.w.Count("cmd", "@goto"); n != gotos {
+		t.Errorf("walked %d times while the player steered", n-gotos)
+	}
+	if n := r.w.Count("fly", ""); n != flights {
+		t.Errorf("took off %d times while the player steered", n-flights)
+	}
+	if n := r.w.Count("cmd", "@follow"); n != follows {
+		t.Errorf("started following %d times while the player steered", n-follows)
+	}
+}

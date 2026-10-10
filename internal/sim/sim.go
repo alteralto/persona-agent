@@ -70,6 +70,7 @@ type World struct {
 	flyPhase  string // "idle", "takeoff", "flying", "done", "failed"
 	flyTarget [2]float64
 	flyReason string
+	manualAt  time.Time // the player last steered the bot by hand
 	flyAt     time.Time
 	flown     int
 }
@@ -167,6 +168,18 @@ func (w *World) InWater() bool {
 	defer w.mu.Unlock()
 	w.stepLocked()
 	return w.inWaterLocked(w.x, w.z)
+}
+
+// SteerByHand is the player at the keyboard moving the mouse: a flight lets go, as in the mod.
+func (w *World) SteerByHand() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stepLocked()
+	w.manualAt = time.Now()
+	if w.flyPhase == "takeoff" || w.flyPhase == "flying" {
+		w.flyPhase, w.flyReason, w.flyLeader = "failed", "by hand", ""
+	}
+	w.goal, w.follow = nil, "" // the hand wins over the pathfinder
 }
 
 // SetDown makes every tool call fail, as when the game is closed.
@@ -390,7 +403,11 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		return "ok", false
 	case "pathStatus":
 		busy := w.goal != nil || w.follow != "" || w.flyPhase == "takeoff" || w.flyPhase == "flying"
-		return map[string]any{"pos": fmt.Sprintf("%.1f,%.1f,%.1f", w.x, w.y, w.z), "busy": busy}, false
+		manual := int64(-1)
+		if !w.manualAt.IsZero() {
+			manual = time.Since(w.manualAt).Milliseconds()
+		}
+		return map[string]any{"pos": fmt.Sprintf("%.1f,%.1f,%.1f", w.x, w.y, w.z), "busy": busy, "manualMs": manual}, false
 	case "getGameState":
 		var players []map[string]any
 		for name, p := range w.players {

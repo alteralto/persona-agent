@@ -99,27 +99,31 @@ type Agent struct {
 	leading    bool // walking players to the burrow
 
 	// Fork features (see modtools.go).
-	creative        bool // from getGameState when the fork reports it, else from config
-	modeKnown       bool
-	modeChecked     time.Time
-	fork            bool // setBuildPolicy worked: the fork's tools are there
-	flightKit       bool
-	noFlight        bool
-	noTidy          bool
-	botsNear        []string
-	botsKnown       bool
-	roofRetries     int
-	retryFlight     *[2]int
-	retryFrom       [2]int
-	testLegOut      bool
-	flyX, flyZ      int
-	swimming        bool
-	noSwim          bool
-	wetSince        time.Time
-	swimPauseUntil  time.Time
-	othersNear      int
-	flightFailedAt  time.Time
-	outOfWorld      bool
+	creative       bool // from getGameState when the fork reports it, else from config
+	modeKnown      bool
+	modeChecked    time.Time
+	fork           bool // setBuildPolicy worked: the fork's tools are there
+	flightKit      bool
+	noFlight       bool
+	noTidy         bool
+	botsNear       []string
+	botsKnown      bool
+	roofRetries    int
+	retryFlight    *[2]int
+	retryFrom      [2]int
+	testLegOut     bool
+	flyX, flyZ     int
+	swimming       bool
+	noSwim         bool
+	wetSince       time.Time
+	swimPauseUntil time.Time
+	othersNear     int
+	flightFailedAt time.Time
+	outOfWorld     bool
+	// The player steers this account by hand (the mod reports their last mouse or key input):
+	// manualMs is how long ago, -1 for never; handHeld while the bot keeps out of the way.
+	manualMs        int64
+	handHeld        bool
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time
