@@ -30,8 +30,8 @@ func Parse(line string) (Message, bool) {
 	for _, re := range []*regexp.Regexp{vanilla, plugin} {
 		if m := re.FindStringSubmatch(line); m != nil {
 			text := strings.TrimSpace(m[2])
-			if text == "" {
-				return Message{}, false
+			if text == "" || logLevels[strings.ToUpper(m[1])] {
+				return Message{}, false // "WARNING: Failed! No block path" is the mod, not a player
 			}
 			return Message{Nick: m[1], Text: text}, true
 		}
@@ -62,3 +62,6 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+// logLevels: words that open a mod's log line printed to chat, never a player's name.
+var logLevels = map[string]bool{"WARNING": true, "WARN": true, "ERROR": true, "INFO": true, "DEBUG": true, "SEVERE": true}
