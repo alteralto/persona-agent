@@ -271,6 +271,9 @@ impl eframe::App for Pult {
                         "агент, голос и Laya остановлены; Minecraft не тронут".into()
                     });
                 }
+                if ui.button("Карта").on_hover_text("Что Пыхтун разведал: земля, находки, полёты (data/map.html)").clicked() {
+                    let _ = Command::new("explorer").arg(self.root.join("data").join("map.html")).spawn();
+                }
                 if ui.button("Папка логов").clicked() {
                     let _ = Command::new("explorer").arg(self.root.join("logs")).spawn();
                 }

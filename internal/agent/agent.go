@@ -72,6 +72,8 @@ type Config struct {
 	FlightStyle string
 	// MarksDir: Xaero's waypoint folder (xaero/minimap); a waypoint named B there sends the bot.
 	MarksDir string
+	// MapPath: the map page the agent redraws every few minutes (empty: next to the places file).
+	MapPath string
 }
 
 type Agent struct {
@@ -140,6 +142,10 @@ type Agent struct {
 	lastRocketShow time.Time
 	marksChecked   time.Time
 	marksSeen      map[mark]bool
+	// The flight being flown, for the map: its style and points every couple of seconds.
+	track      [][2]int
+	trackStyle string
+	mapWritten time.Time
 	// Visits to players who are not companions: when each was last visited and greeted, so the
 	// bot comes over now and then without trailing anyone.
 	visited         map[string]time.Time

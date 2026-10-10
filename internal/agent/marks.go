@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alteralto/persona-agent/internal/worldmap"
 )
 
 // Marks on the map: a waypoint the player puts on Xaero's minimap or world map under one of
@@ -113,4 +115,31 @@ func (a *Agent) goToMark(ctx context.Context, m mark) bool {
 		at: time.Now(),
 	})
 	return true
+}
+
+// mapEvery: how often the map page is redrawn.
+const mapEvery = 3 * time.Minute
+
+// writeMap redraws the map page (worldmap) from the places file every few minutes.
+func (a *Agent) writeMap() {
+	if a.places == nil || time.Since(a.mapWritten) < mapEvery {
+		return
+	}
+	a.mapWritten = time.Now()
+	path := a.cfg.MapPath
+	if path == "" {
+		path = filepath.Join(filepath.Dir(a.cfg.PlacesPath), "map.html")
+	}
+	page, err := worldmap.Render(a.places, time.Now())
+	if err != nil {
+		return // nothing seen yet
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, page, 0o644); err != nil {
+		a.log.Warn("map", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		a.log.Warn("map", "err", err)
+	}
 }

@@ -24,6 +24,10 @@ type Places struct {
 	Home    *Pos            `json:"home,omitempty"`
 	Visited map[string]bool `json:"visited"`
 	List    []Place         `json:"places"`
+	// Surface: per chunk ("x,z"), 256 kind letters, row by row (z then x): the map's ground.
+	Surface map[string]string `json:"surface,omitempty"`
+	// Tracks: the latest flights as flown.
+	Tracks []Track `json:"tracks,omitempty"`
 }
 
 func LoadPlaces(path string) (*Places, error) {

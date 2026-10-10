@@ -193,6 +193,7 @@ func (a *Agent) roam(ctx context.Context) {
 	if a.checkMarks(ctx) {
 		return
 	}
+	a.writeMap()
 	if a.checkWater(ctx) {
 		return
 	}
@@ -372,6 +373,9 @@ func (a *Agent) survey(ctx context.Context, pos explore.Pos, target explore.Chun
 	if err != nil {
 		a.log.Warn("survey", "err", err)
 		return
+	}
+	if err := a.places.AddSurface(pos, raw); err != nil {
+		a.log.Warn("survey surface", "err", err)
 	}
 	f, err := explore.Summarize(raw)
 	if err != nil {

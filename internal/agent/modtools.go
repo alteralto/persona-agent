@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -255,6 +256,12 @@ func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) boo
 	if !a.takeOff(ctx, "flyTo", o.args(map[string]any{"x": x, "y": y, "z": z})) {
 		return false
 	}
+	a.trackStyle = styleNormal
+	if o.low {
+		a.trackStyle = styleLow
+	} else if o.tricks > 0 {
+		a.trackStyle = styleTricks
+	}
 	a.flyX, a.flyZ = x, z
 	a.log.Info("flight: taking off", "x", x, "z", z, "low", o.low, "tricks", o.tricks)
 	return true
@@ -271,6 +278,7 @@ func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool
 		return a.startFlightOpts(ctx, last[0], last[1], o)
 	}
 	last := pts[len(pts)-1]
+	a.trackStyle = styleRoute
 	a.flyX, a.flyZ = last[0], last[1]
 	a.log.Info("flight: route", "points", strings.Join(parts, ";"))
 	return true
@@ -338,6 +346,7 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 		return false
 	}
 	a.flying, a.flightStarted = true, time.Now()
+	a.track = nil
 	a.mood("scared", 30) // he is afraid of heights
 	return true
 }
@@ -390,6 +399,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 	}
 	_ = json.Unmarshal([]byte(text), &st)
 	var tel struct {
+		Pos      string  `json:"pos"`
 		Mode     string  `json:"mode"`
 		Speed    float64 `json:"speed"`
 		Pitch    float64 `json:"pitch"`
@@ -401,12 +411,23 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.log.Info("flight: status", "mode", tel.Mode, "speed", tel.Speed, "pitch", tel.Pitch,
 			"climb", tel.Climb, "dist", tel.Distance)
 	}
+	if p, err := explore.ParsePos(tel.Pos); err == nil {
+		x, z := int(p.X), int(p.Z)
+		if n := len(a.track); n == 0 || math.Hypot(float64(x-a.track[n-1][0]), float64(z-a.track[n-1][1])) > 4 {
+			a.track = append(a.track, [2]int{x, z})
+		}
+	}
 	switch st.Phase {
 	case "done", "failed", "idle":
 		a.flying = false
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
+		if a.places != nil {
+			a.places.AddTrack(explore.Track{Style: a.trackStyle, At: a.flightStarted, Points: a.track})
+			a.savePlaces()
+		}
+		a.track = nil
 		if st.Phase == "done" {
 			a.mood("happy", 6) // down safe
 			// Now and then one pretty rocket on landing, for the joy of it.
