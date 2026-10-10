@@ -44,7 +44,7 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 		return true
 	}
 	// Now and then a fireworks show for whoever is around (creative only).
-	if a.othersNear > 0 && rand.IntN(10) == 0 && a.startSaluteShow(ctx) {
+	if a.othersNear > 0 && rand.IntN(10) == 0 && time.Since(a.lastRocketShow) > rocketShowEvery && a.startSaluteShow(ctx) {
 		return true
 	}
 	r := rand.Float64()
@@ -132,12 +132,12 @@ func (a *Agent) startFlightShow(ctx context.Context) bool {
 
 // startSaluteShow launches a fireworks show on the bot's own and says so.
 func (a *Agent) startSaluteShow(ctx context.Context) bool {
-	if !a.salute(ctx) {
+	if !a.salute(ctx, 1) {
 		return false
 	}
 	a.log.Info("activity: salute")
 	a.enqueue(replyJob{
-		prompt: "Ты сам решил устроить небольшой салют: запускаешь цветные фейерверки. " +
+		prompt: "Ты сам решил запустить одну красивую ракету с цветными звёздами — для тех, кто рядом. " +
 			"Скажи об этом одной короткой фразой до 90 символов, в характере.",
 		at: time.Now(),
 	})
@@ -186,6 +186,9 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 		}
 	}
 }
+
+// rocketShowEvery: at most one pretty rocket from the ground this often, unless asked for a show.
+const rocketShowEvery = 10 * time.Minute
 
 const (
 	visitNear  = 30.0             // someone this close: the bot is among people already

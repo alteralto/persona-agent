@@ -353,6 +353,10 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
 		if st.Phase == "done" {
 			a.mood("happy", 6) // down safe
+			// Now and then one pretty rocket on landing, for the joy of it.
+			if rand.IntN(4) == 0 && time.Since(a.lastRocketShow) > rocketShowEvery {
+				a.salute(ctx, 1)
+			}
 		} else {
 			a.mood("neutral", 1)
 		}
@@ -554,9 +558,9 @@ func (a *Agent) checkWater(ctx context.Context) bool {
 	return true
 }
 
-// salute launches a fireworks show from the ground (fork, creative): six to eight colored
-// rockets in a fan ahead. The bot stops walking first, so the pathfinder does not turn it away.
-func (a *Agent) salute(ctx context.Context) bool {
+// salute launches colored rockets from the ground (fork, creative), n of them in a fan ahead.
+// The bot stops walking first, so the pathfinder does not turn it away.
+func (a *Agent) salute(ctx context.Context, n int) bool {
 	if !a.fork || !a.creative || a.flying {
 		a.log.Info("salute skipped", "fork", a.fork, "creative", a.creative, "flying", a.flying)
 		return false
@@ -565,13 +569,13 @@ func (a *Agent) salute(ctx context.Context) bool {
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("salute stop", "err", err)
 	}
-	n := 6 + rand.IntN(3)
 	text, err := a.mc.Call(ctx, "salute", map[string]any{"count": n})
 	if err != nil {
 		a.log.Warn("salute", "err", err)
 		return false
 	}
 	a.log.Info("salute", "count", n, "result", text)
+	a.lastRocketShow = time.Now()
 	a.mood("happy", 15)
 	a.lingerFor(15 * time.Second) // stay and watch it
 	return true

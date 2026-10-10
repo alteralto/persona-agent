@@ -131,6 +131,9 @@ type Agent struct {
 	// still there (lobbyHeld) until the server moves it into the real world.
 	gameMode  string
 	lobbyHeld bool
+	// lastRocketShow: the last colored rockets from the ground; on its own the bot fires one at
+	// most every rocketShowEvery.
+	lastRocketShow time.Time
 	// Visits to players who are not companions: when each was last visited and greeted, so the
 	// bot comes over now and then without trailing anyone.
 	visited         map[string]time.Time
@@ -550,7 +553,7 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 			cmd = "@give " + nick + " paper 3"
 		}
 	case ActSalute:
-		a.salute(ctx)
+		a.salute(ctx, 4+rand.IntN(2)) // asked for: a short show
 		return
 	case ActFly, ActFlyLow:
 		a.trip, a.following = nil, ""
