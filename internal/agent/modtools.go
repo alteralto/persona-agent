@@ -267,7 +267,8 @@ func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool
 		parts[i] = fmt.Sprintf("%d,%d", p[0], p[1])
 	}
 	if !a.takeOff(ctx, "flyRoute", o.args(map[string]any{"points": strings.Join(parts, ";")})) {
-		return false
+		last := pts[len(pts)-1] // an older jar has no routes: fly to the end of it
+		return a.startFlightOpts(ctx, last[0], last[1], o)
 	}
 	last := pts[len(pts)-1]
 	a.flyX, a.flyZ = last[0], last[1]
@@ -325,8 +326,10 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 	a.flying = true  // fall saves off before take-off: a glide must not trigger pearl throws
 	a.applyFallSaves(ctx)
 	if _, err := a.mc.Call(ctx, tool, args); err != nil {
-		if unknownTool(err) {
+		if unknownTool(err) && tool == "flyTo" {
 			a.noFlight = true // upstream mod: never try again this run
+		} else if unknownTool(err) {
+			a.log.Info("fork jar without "+tool+": a plain flight instead")
 		} else {
 			a.log.Warn("fly", "err", err)
 		}
