@@ -16,7 +16,7 @@ import (
 // activity is something the bot does on its own initiative, independent of how chatty the
 // others are: idle-only behaviour never fired while two other bots talked non-stop.
 type activity struct {
-	kind    string // "sign" | "scout" | "visit"
+	kind    string // "sign" | "scout" | "visit" | "mark" | "stroll"
 	x, z    int
 	label   string
 	started time.Time
@@ -70,8 +70,25 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	case r >= 1-shares[3] && a.startFlightShow(ctx):
 		return true
 	}
-	// The drawn one was not possible (no signs left, no places yet): try the others.
-	return a.startSignTour(ctx) || a.startOuting(ctx) || a.startScout(ctx)
+	// The drawn one was not possible (no signs left, no places yet): try the others, and at
+	// worst a stroll -- standing about for half a minute at a time looks broken.
+	return a.startSignTour(ctx) || a.startOuting(ctx) || a.startScout(ctx) || a.startStroll(ctx)
+}
+
+// startStroll walks 12-25 blocks: back towards home when it has wandered off, else anywhere.
+func (a *Agent) startStroll(ctx context.Context) bool {
+	angle := rand.Float64() * 2 * math.Pi
+	if h := a.places.Home; h != nil && math.Hypot(h.X-a.pos.X, h.Z-a.pos.Z) > 60 {
+		angle = math.Atan2(h.Z-a.pos.Z, h.X-a.pos.X) + (rand.Float64()-0.5)*0.8
+	}
+	d := 12 + rand.Float64()*13
+	x, z := int(a.pos.X+d*math.Cos(angle)), int(a.pos.Z+d*math.Sin(angle))
+	if !a.walkTo(ctx, x, z) {
+		return false
+	}
+	a.activity = &activity{kind: "stroll", x: x, z: z, started: time.Now()}
+	a.log.Info("activity: stroll", "x", x, "z", z)
+	return true
 }
 
 // startSignTour walks to the nearest sign not read yet.
