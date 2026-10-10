@@ -5,9 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,10 +21,79 @@ type Client struct {
 	token string
 	http  *http.Client
 	id    atomic.Int64
+
+	// Finding the client by the player's name (two game clients on one machine).
+	player   string
+	ports    []int
+	mu       sync.Mutex
+	found    string // the url found, "" until found or after it stopped answering
+	lookedAt time.Time
 }
 
 func New(url, token string) *Client {
 	return &Client{url: url, token: token, http: &http.Client{Timeout: 10 * time.Second}}
+}
+
+// ForPlayer finds the game client of one player among the mod servers on 127.0.0.1 at ports
+// from..from+9 (the mod takes the next free port when another client has its own), by the name in
+// getGameState, and looks again whenever that one stops answering (a game restart can swap them).
+func ForPlayer(player, token string, from int) *Client {
+	c := New("", token)
+	c.player = player
+	for p := from; p < from+10; p++ {
+		c.ports = append(c.ports, p)
+	}
+	return c
+}
+
+func (c *Client) target(ctx context.Context) (string, error) {
+	if c.player == "" {
+		return c.url, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.found != "" {
+		return c.found, nil
+	}
+	if time.Since(c.lookedAt) < 2*time.Second {
+		return "", fmt.Errorf("no game client of %s found", c.player)
+	}
+	c.lookedAt = time.Now()
+	var nameless []string // an older mod, or not in a world yet: no name to go by
+	for _, p := range c.ports {
+		url := fmt.Sprintf("http://127.0.0.1:%d/mcp", p)
+		qctx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		text, err := c.call(qctx, url, "getGameState", nil)
+		cancel()
+		if err != nil {
+			continue
+		}
+		var st struct {
+			Self struct {
+				Name string `json:"name"`
+			} `json:"self"`
+		}
+		_ = json.Unmarshal([]byte(text), &st)
+		switch {
+		case strings.EqualFold(st.Self.Name, c.player):
+			c.found = url
+			return url, nil
+		case st.Self.Name == "":
+			nameless = append(nameless, url)
+		}
+	}
+	if len(nameless) > 0 {
+		return nameless[0], nil // not cached: look again once the name shows up
+	}
+	return "", fmt.Errorf("no game client of %s found", c.player)
+}
+
+func (c *Client) lost() {
+	if c.player != "" {
+		c.mu.Lock()
+		c.found = ""
+		c.mu.Unlock()
+	}
 }
 
 // TokenFromSettings reads mcpAuthToken from altoclef_settings.json without logging it.
@@ -56,6 +129,24 @@ type rpcResponse struct {
 
 // Call invokes a tool and returns its text content.
 func (c *Client) Call(ctx context.Context, tool string, args map[string]any) (string, error) {
+	url, err := c.target(ctx)
+	if err != nil {
+		return "", err
+	}
+	text, err := c.call(ctx, url, tool, args)
+	if err != nil && ctx.Err() == nil && isConnErr(err) {
+		c.lost()
+	}
+	return text, err
+}
+
+func isConnErr(err error) bool {
+	var ne net.Error
+	var oe *net.OpError
+	return errors.As(err, &oe) || errors.As(err, &ne)
+}
+
+func (c *Client) call(ctx context.Context, url, tool string, args map[string]any) (string, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
@@ -65,7 +156,7 @@ func (c *Client) Call(ctx context.Context, tool string, args map[string]any) (st
 		"method":  "tools/call",
 		"params":  map[string]any{"name": tool, "arguments": args},
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

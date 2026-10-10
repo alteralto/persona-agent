@@ -3,6 +3,7 @@
 //
 //	go run ./cmd/mcpcall getGameState
 //	go run ./cmd/mcpcall flyTo '{"x":0,"y":70,"z":0,"low":true}'
+//	MC_PLAYER=arca_pro go run ./cmd/mcpcall getGameState   # the client of that player
 package main
 
 import (
@@ -42,7 +43,11 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	out, err := mcp.New(url, token).Call(ctx, os.Args[1], args)
+	c := mcp.New(url, token)
+	if p := os.Getenv("MC_PLAYER"); p != "" && os.Getenv("MCP_URL") == "" {
+		c = mcp.ForPlayer(p, token, 25350)
+	}
+	out, err := c.Call(ctx, os.Args[1], args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -72,8 +72,14 @@ func main() {
 	llm := giga.New(creds, env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"), env("GIGACHAT_MODEL", "GigaChat-2"),
 		env("GIGACHAT_VERIFY_SSL", "false") == "true")
 	llm.PersistDNS(env("DNS_CACHE", `data\dns-cache.json`))
+	// MCP_URL pins one mod server; by default the bot's own client is found by its player name
+	// among 127.0.0.1:25350..25359 (two game clients on one machine take neighbouring ports).
+	mc := mcp.ForPlayer(cfg.BotNick, token, 25350)
+	if u := env("MCP_URL", ""); u != "" {
+		mc = mcp.New(u, token)
+	}
 	a := agent.New(cfg,
-		mcp.New(env("MCP_URL", "http://127.0.0.1:25350/mcp"), token),
+		mc,
 		laya.New(env("LAYA_URL", "http://127.0.0.1:8090")),
 		llm,
 		log)
