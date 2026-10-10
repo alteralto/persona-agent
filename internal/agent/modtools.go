@@ -20,10 +20,18 @@ func unknownTool(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Unknown tool")
 }
 
-// protectBuilds asks the pathfinder to mine only natural terrain and place nothing. With the
-// upstream mod it falls back to a no-break zone around home.
+// protectBuilds asks the pathfinder to place nothing and, unless AllowBreak, to mine nothing at
+// all (else only natural terrain). With the upstream mod, or a fork jar too old to forbid mining,
+// it falls back to a no-break zone around home.
 func (a *Agent) protectBuilds(ctx context.Context) {
-	out, err := a.mc.Call(ctx, "setBuildPolicy", map[string]any{"breakOnlyNatural": true, "allowPlace": false})
+	out, err := a.mc.Call(ctx, "setBuildPolicy", map[string]any{"breakOnlyNatural": true, "allowPlace": false,
+		"allowBreak": a.cfg.AllowBreak})
+	if err == nil && !a.cfg.AllowBreak && !strings.Contains(out, `"allowBreak":false`) {
+		a.log.Warn("fork jar cannot forbid mining yet: a no-break zone around home instead", "result", out)
+		a.fork = true
+		a.protectHome(ctx)
+		return
+	}
 	if err == nil {
 		// The policy replaces the zone: drop zones a previous agent run left behind.
 		if _, err := a.mc.Call(ctx, "clearProtectedAreas", nil); err != nil {

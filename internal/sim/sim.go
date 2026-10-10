@@ -420,7 +420,11 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			"inWater": w.inWaterLocked(w.x, w.z),
 			"pos":     fmt.Sprintf("%.1f,%.1f,%.1f", w.x, w.y, w.z)}, "players": players}, false
 	case "setBuildPolicy":
-		return map[string]any{"ok": true, "breakOnlyNatural": args["breakOnlyNatural"], "allowPlace": args["allowPlace"]}, false
+		out := map[string]any{"ok": true, "breakOnlyNatural": args["breakOnlyNatural"], "allowPlace": args["allowPlace"]}
+		if v, ok := args["allowBreak"]; ok {
+			out["allowBreak"] = v
+		}
+		return out, false
 	case "clearProtectedAreas", "markProtectedArea":
 		return map[string]any{"ok": true}, false
 	case "readSigns":

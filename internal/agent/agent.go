@@ -65,6 +65,9 @@ type Config struct {
 	// ProtectRadius: blocks around home where the mod may neither break nor place anything.
 	// Pathfinding otherwise digs through walls, which on a shared server is griefing.
 	ProtectRadius int
+	// AllowBreak lets the pathfinder mine its way through natural blocks (grass, sand, leaves).
+	// Off by default: on a shared server those are someone's build too.
+	AllowBreak bool
 }
 
 type Agent struct {
