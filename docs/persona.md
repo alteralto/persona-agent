@@ -67,3 +67,19 @@
 - Характер и правила речи — `internal/agent/persona.go` (`personaPrompt`, `actionNotes`).
 - Настроения аватара — `internal/voice` (`Mood`), страница аватара — `voice/avatar.html`.
 - Полёты — `docs/elytra-pilot.md` в форке UnionClef.
+
+## Архитектура
+
+```
+голос игры ─Py4J─▶ voice/service.py (Whisper) ─┐
+текст чата ─MCP getRecentChat─────────────────┤
+                                              ▼
+                     Go-агент (cmd/agent, internal/agent)
+   решение: правила + Laya (~100 мс) → действие через мод UnionClef (MCP :25350):
+   @follow, @goto, flyTo/flyRoute/flyFollow (ElytraPilot), salute, разведка
+   речь: GigaChat → критик → текст в чат + Piper → VB-Cable → голосовой чат
+   память: data/places.json (места, люди, земля, треки) → data/map.html
+   стрим: /avatar (OBS) — губы и настроение; пульт launcher/ (Rust) запускает всё
+```
+
+Подробности и задержки — в README («How it works»), пилот элитр — `docs/elytra-pilot.md` в форке.
