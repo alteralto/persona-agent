@@ -4,6 +4,7 @@
 character that plays Minecraft with real players. He hears the game's voice chat, decides what to
 do in about a tenth of a second, answers out loud in his own voice, explores, remembers places and
 people, and talks with other AI characters on the server.
+The character himself — backstory, temper, speech — is in [docs/persona.md](docs/persona.md).
 
 The design goal is **speed**: from the end of a player's phrase to the first sound of the answer
 in about two seconds, most of it speech recognition.
