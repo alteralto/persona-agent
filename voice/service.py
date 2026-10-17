@@ -150,7 +150,14 @@ def find_output(name: str) -> int:
     for i, d in enumerate(sd.query_devices()):
         if d["max_output_channels"] > 0 and d["name"].startswith(name) and d["hostapi"] == 0:
             return i
-    raise SystemExit(f"output device {name!r} not found")
+    raise LookupError(f"output device {name!r} not found")
+
+
+def rescan_devices() -> None:
+    """Make PortAudio list the devices again: it keeps the list from start-up, and the numbers in
+    it go stale when headphones come or go (the voice once died with "device ID out of range")."""
+    sd._terminate()
+    sd._initialize()
 
 
 # Nicknames as they should sound. The text chat keeps the originals.
@@ -168,9 +175,12 @@ def say_as(text: str) -> str:
 
 
 class Speaker:
-    def __init__(self, voice: PiperVoice, device: int):
+    REOPEN_TRIES = 15  # a second apart: the device may take a moment to come back
+
+    def __init__(self, voice: PiperVoice, device_name: str):
         self.voice = voice
-        self.device = device
+        self.device_name = device_name
+        self.device = find_output(device_name)
         self.queue: "queue.Queue[str]" = queue.Queue()
         self.speaking = threading.Event()
         self.level = 0.0  # loudness of what is playing now, 0..1, for the avatar's mouth
@@ -180,31 +190,58 @@ class Speaker:
         self.queue.put(say_as(text))
 
     def _run(self):
-        rate = self.voice.config.sample_rate
+        # Never lets an error end the thread: once it did, and the bot stayed mute till a restart.
         while True:
             text = self.queue.get()
-            start = time.perf_counter()
-            first_ms, seconds = None, 0.0
             self.speaking.set()
-            # Piper yields one chunk per sentence: play each as soon as it is ready, so the first
-            # sound does not wait for the whole line.
-            with sd.OutputStream(samplerate=rate, channels=1, dtype="int16", device=self.device) as out:
-                for chunk in self.voice.synthesize(text):
-                    if first_ms is None:
-                        first_ms = (time.perf_counter() - start) * 1000
-                    audio = chunk.audio_int16_array
-                    seconds += len(audio) / rate
-                    # In 40 ms slices: each write blocks about as long as it plays, so the level
-                    # set before it follows the voice the stream hears.
-                    step = rate // 25
-                    for i in range(0, len(audio), step):
-                        piece = audio[i:i + step]
-                        rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
-                        self.level = min(1.0, rms / 5000.0)
-                        out.write(piece.reshape(-1, 1))
-            self.level = 0.0
-            self.speaking.clear()
-            log.info("speak (first sound %d ms, %.1fs audio): %s", first_ms or 0, seconds, text)
+            try:
+                try:
+                    self._speak(text)
+                except (sd.PortAudioError, ValueError, OSError) as err:
+                    log.warning("audio device lost (%s): reopening %s", err, self.device_name)
+                    if self._reopen():
+                        self._speak(text)
+            except Exception:
+                log.exception("speak failed: %s", text)
+            finally:
+                self.level = 0.0
+                self.speaking.clear()
+
+    def _reopen(self) -> bool:
+        """Find the device again by name in a fresh device list; False when it does not come back."""
+        for _ in range(self.REOPEN_TRIES):
+            try:
+                rescan_devices()
+                self.device = find_output(self.device_name)
+                log.info("audio device back: %s", sd.query_devices(self.device)["name"])
+                return True
+            except (LookupError, sd.PortAudioError) as err:
+                log.warning("waiting for %s: %s", self.device_name, err)
+                time.sleep(1)
+        log.error("audio device %s gone, line dropped", self.device_name)
+        return False
+
+    def _speak(self, text: str) -> None:
+        rate = self.voice.config.sample_rate
+        start = time.perf_counter()
+        first_ms, seconds = None, 0.0
+        # Piper yields one chunk per sentence: play each as soon as it is ready, so the first
+        # sound does not wait for the whole line.
+        with sd.OutputStream(samplerate=rate, channels=1, dtype="int16", device=self.device) as out:
+            for chunk in self.voice.synthesize(text):
+                if first_ms is None:
+                    first_ms = (time.perf_counter() - start) * 1000
+                audio = chunk.audio_int16_array
+                seconds += len(audio) / rate
+                # In 40 ms slices: each write blocks about as long as it plays, so the level
+                # set before it follows the voice the stream hears.
+                step = rate // 25
+                for i in range(0, len(audio), step):
+                    piece = audio[i:i + step]
+                    rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
+                    self.level = min(1.0, rms / 5000.0)
+                    out.write(piece.reshape(-1, 1))
+        log.info("speak (first sound %d ms, %.1fs audio): %s", first_ms or 0, seconds, text)
 
 
 AVATAR_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "avatar.html")
@@ -282,7 +319,10 @@ def main():
     # Py4J logs every callback at INFO: one line per 20 ms voice packet (5.7 MB in an evening).
     logging.getLogger("py4j").setLevel(logging.WARNING)
 
-    speaker = Speaker(PiperVoice.load(args.voice), find_output(args.device))
+    try:
+        speaker = Speaker(PiperVoice.load(args.voice), args.device)
+    except LookupError as err:
+        raise SystemExit(str(err))
     if args.say:
         speaker.say(args.say)
         time.sleep(0.5)
