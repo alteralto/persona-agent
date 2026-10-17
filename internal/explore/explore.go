@@ -13,6 +13,12 @@ type Pos struct{ X, Y, Z float64 }
 
 type Chunk struct{ X, Z int }
 
+// Block is the block coordinate a position falls in: rounded down, so -477.2 is block -478.
+// int() rounds towards zero and put negative coordinates one block off.
+func Block(v float64) int {
+	return int(math.Floor(v))
+}
+
 func ChunkOf(p Pos) Chunk {
 	return Chunk{int(math.Floor(p.X)) >> 4, int(math.Floor(p.Z)) >> 4}
 }

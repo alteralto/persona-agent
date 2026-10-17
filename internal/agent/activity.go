@@ -82,7 +82,7 @@ func (a *Agent) startStroll(ctx context.Context) bool {
 		angle = math.Atan2(h.Z-a.pos.Z, h.X-a.pos.X) + (rand.Float64()-0.5)*0.8
 	}
 	d := 12 + rand.Float64()*13
-	x, z := int(a.pos.X+d*math.Cos(angle)), int(a.pos.Z+d*math.Sin(angle))
+	x, z := explore.Block(a.pos.X+d*math.Cos(angle)), explore.Block(a.pos.Z+d*math.Sin(angle))
 	if !a.walkTo(ctx, x, z) {
 		return false
 	}
@@ -260,8 +260,8 @@ func (a *Agent) startVisit(ctx context.Context) bool {
 		return false
 	}
 	k := (best.dist - visitShort) / best.dist
-	x := int(a.pos.X + (best.x-a.pos.X)*k)
-	z := int(a.pos.Z + (best.z-a.pos.Z)*k)
+	x := explore.Block(a.pos.X + (best.x-a.pos.X)*k)
+	z := explore.Block(a.pos.Z + (best.z-a.pos.Z)*k)
 	if !a.walkTo(ctx, x, z) {
 		return false
 	}
@@ -357,7 +357,7 @@ func (a *Agent) mingle(ctx context.Context) bool {
 		return true
 	case free && r < 0.40 && near.dist > 6 && a.following == "": // a walk over would end the follow
 		k := (near.dist - 3.5) / near.dist
-		x, z := int(a.pos.X+(near.x-a.pos.X)*k), int(a.pos.Z+(near.z-a.pos.Z)*k)
+		x, z := explore.Block(a.pos.X+(near.x-a.pos.X)*k), explore.Block(a.pos.Z+(near.z-a.pos.Z)*k)
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err == nil {
 			a.log.Info("mingle: steps closer", "player", near.name)
 		}

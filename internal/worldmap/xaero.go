@@ -71,11 +71,11 @@ func WriteXaero(dir string, p *explore.Places) (int, error) {
 func xaeroLines(p *explore.Places) []string {
 	y := 64
 	if p.Home != nil {
-		y = int(p.Home.Y)
+		y = explore.Block(p.Home.Y)
 	}
 	var out []string
 	if p.Home != nil {
-		out = append(out, xaeroLine("Нора Пыхтуна", int(p.Home.X), y, int(p.Home.Z), 12, xaeroEverywhere))
+		out = append(out, xaeroLine("Нора Пыхтуна", explore.Block(p.Home.X), y, explore.Block(p.Home.Z), 12, xaeroEverywhere))
 	}
 	var finds []explore.Place
 	for _, pl := range p.List {

@@ -583,7 +583,7 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 			return
 		}
 		a.trip, a.following, a.leading = nil, "", true
-		hx, hz := int(a.places.Home.X), int(a.places.Home.Z)
+		hx, hz := explore.Block(a.places.Home.X), explore.Block(a.places.Home.Z)
 		// Hundreds of blocks from home in creative: fly, then walk the last metres (roam does it).
 		if a.havePos && a.creative && math.Hypot(a.pos.X-float64(hx), a.pos.Z-float64(hz)) > 100 && a.startFlight(ctx, hx, hz) {
 			return

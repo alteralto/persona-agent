@@ -126,3 +126,11 @@ func TestColorAdj(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockRoundsDown(t *testing.T) {
+	for v, want := range map[float64]int{-477.2: -478, -477: -477, -0.5: -1, 0.5: 0, 12.9: 12} {
+		if got := Block(v); got != want {
+			t.Errorf("Block(%v) = %d, want %d", v, got, want)
+		}
+	}
+}

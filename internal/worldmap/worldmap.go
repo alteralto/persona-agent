@@ -61,7 +61,7 @@ func Render(p *explore.Places, now time.Time) ([]byte, error) {
 		grow(pl.X, pl.Z)
 	}
 	if p.Home != nil {
-		grow(int(p.Home.X), int(p.Home.Z))
+		grow(explore.Block(p.Home.X), explore.Block(p.Home.Z))
 	}
 	for _, t := range p.Tracks {
 		for _, pt := range t.Points {
@@ -120,7 +120,7 @@ func Render(p *explore.Places, now time.Time) ([]byte, error) {
 			cls, pl.X, pl.Z, html.EscapeString(pl.Desc), pl.X, pl.Z)
 	}
 	if p.Home != nil {
-		hx, hz := int(p.Home.X), int(p.Home.Z)
+		hx, hz := explore.Block(p.Home.X), explore.Block(p.Home.Z)
 		fmt.Fprintf(&svg, `<g class="home" transform="translate(%d %d)"><path d="M-7 1 L0 -7 L7 1 L5 1 L5 7 L-5 7 L-5 1 Z"/><title>Нора Пыхтуна (%d, %d)</title></g>`,
 			hx, hz, hx, hz)
 	}

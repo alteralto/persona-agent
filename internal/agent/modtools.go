@@ -252,7 +252,7 @@ func (o flightOpts) args(m map[string]any) map[string]any {
 func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) bool {
 	y := 70
 	if a.places != nil && a.places.Home != nil {
-		y = int(a.places.Home.Y)
+		y = explore.Block(a.places.Home.Y)
 	}
 	a.lastOpts = o // a take-off that fails under a roof is retried in the same style
 	if !a.takeOff(ctx, "flyTo", o.args(map[string]any{"x": x, "y": y, "z": z})) {
@@ -612,7 +612,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 			"climb", tel.Climb, "dist", tel.Distance)
 	}
 	if p, err := explore.ParsePos(tel.Pos); err == nil {
-		x, z := int(p.X), int(p.Z)
+		x, z := explore.Block(p.X), explore.Block(p.Z)
 		if n := len(a.track); n == 0 || math.Hypot(float64(x-a.track[n-1][0]), float64(z-a.track[n-1][1])) > 4 {
 			a.track = append(a.track, [2]int{x, z})
 		}

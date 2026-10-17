@@ -113,7 +113,7 @@ func (a *Agent) walkTarget() (int, int, bool) {
 		x, z := a.trip.target.Center()
 		return x, z, true
 	case a.leading && a.places.Home != nil:
-		return int(a.places.Home.X), int(a.places.Home.Z), true
+		return explore.Block(a.places.Home.X), explore.Block(a.places.Home.Z), true
 	}
 	return 0, 0, false
 }
@@ -159,7 +159,7 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	if a.creative && (far || a.stuckCount >= 2) {
 		fx, fz := flyOutTarget(pos, tx, tz, haveTarget)
 		if a.startFlight(ctx, fx, fz) {
-			a.log.Info("stuck: flying out", "x", int(pos.X), "z", int(pos.Z), "to_x", fx, "to_z", fz, "times", a.stuckCount)
+			a.log.Info("stuck: flying out", "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "to_x", fx, "to_z", fz, "times", a.stuckCount)
 			a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
 			if following {
 				a.followAfter = a.following // after landing: keep up with them on foot
@@ -174,8 +174,8 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	}
 	angle := rand.Float64() * 2 * math.Pi
 	dist := 6 + rand.Float64()*4
-	x, z := int(pos.X+dist*math.Cos(angle)), int(pos.Z+dist*math.Sin(angle))
-	a.log.Info("stuck: hopping aside", "x", int(pos.X), "z", int(pos.Z), "to_x", x, "to_z", z)
+	x, z := explore.Block(pos.X+dist*math.Cos(angle)), explore.Block(pos.Z+dist*math.Sin(angle))
+	a.log.Info("stuck: hopping aside", "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "to_x", x, "to_z", z)
 	a.outing, a.trip, a.following, a.leading, a.activity = nil, nil, "", false, nil
 	for _, cmd := range []string{"@stop", fmt.Sprintf("@goto %d %d", x, z)} {
 		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err != nil {
@@ -238,13 +238,13 @@ func (a *Agent) roam(ctx context.Context) {
 		a.places.Home = &home
 		a.homeSettled = false
 		a.savePlaces()
-		a.log.Info("home set from config", "x", int(h.X), "z", int(h.Z))
+		a.log.Info("home set from config", "x", explore.Block(h.X), "z", explore.Block(h.Z))
 	}
 	if a.places.Home == nil {
 		home := pos
 		a.places.Home = &home
 		a.savePlaces()
-		a.log.Info("home set", "x", int(pos.X), "z", int(pos.Z))
+		a.log.Info("home set", "x", explore.Block(pos.X), "z", explore.Block(pos.Z))
 	}
 	a.settleHome(ctx, pos)
 	if !a.protected && a.cfg.ProtectRadius > 0 {
@@ -411,7 +411,7 @@ func (a *Agent) protectHome(ctx context.Context) {
 		a.log.Warn("clear protected areas", "err", err)
 	}
 	out, err := a.mc.Call(ctx, "markProtectedArea", map[string]any{
-		"x": int(h.X), "y": int(h.Y), "z": int(h.Z), "r": a.cfg.ProtectRadius})
+		"x": explore.Block(h.X), "y": explore.Block(h.Y), "z": explore.Block(h.Z), "r": a.cfg.ProtectRadius})
 	if err != nil {
 		a.log.Warn("protect area", "err", err)
 		return
@@ -439,8 +439,8 @@ func (a *Agent) survey(ctx context.Context, pos explore.Pos, target explore.Chun
 		return
 	}
 	desc, ok := placeLabel(a.signsNear(ctx, 12), f)
-	a.log.Info("explore: surveyed", "x", int(pos.X), "z", int(pos.Z), "built", f.Built, "water", f.Water, "landmark", desc)
-	if !ok || !a.places.Add(explore.Place{Desc: desc, X: int(pos.X), Z: int(pos.Z), Seen: time.Now()}) {
+	a.log.Info("explore: surveyed", "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "built", f.Built, "water", f.Water, "landmark", desc)
+	if !ok || !a.places.Add(explore.Place{Desc: desc, X: explore.Block(pos.X), Z: explore.Block(pos.Z), Seen: time.Now()}) {
 		return
 	}
 	// Remember every find, but announce at most one per two minutes: on a busy server a walk
@@ -452,7 +452,7 @@ func (a *Agent) survey(ctx context.Context, pos explore.Pos, target explore.Chun
 	dir := explore.Direction(*a.places.Home, pos.X, pos.Z)
 	a.enqueue(replyJob{
 		prompt: fmt.Sprintf("Ты, гуляя, нашёл: %s, на x=%d z=%d, это на %s от твоей норы. "+
-			"Коротко расскажи об этом в чат, в характере.", desc, int(pos.X), int(pos.Z), dir),
+			"Коротко расскажи об этом в чат, в характере.", desc, explore.Block(pos.X), explore.Block(pos.Z), dir),
 		at: time.Now(),
 	})
 }
@@ -476,13 +476,13 @@ func (a *Agent) settleHome(ctx context.Context, pos explore.Pos) {
 	if h == nil || a.homeSettled || math.Hypot(h.X-pos.X, h.Z-pos.Z) > homeSurfaceNear {
 		return
 	}
-	y, ok := a.surfaceY(ctx, int(math.Floor(h.X)), int(math.Floor(h.Z)), int(pos.Y)+64, int(pos.Y)-64)
+	y, ok := a.surfaceY(ctx, explore.Block(h.X), explore.Block(h.Z), explore.Block(pos.Y)+64, explore.Block(pos.Y)-64)
 	if !ok {
 		return // not loaded yet: again next time
 	}
 	a.homeSettled = true
 	if math.Abs(y-h.Y) >= 1 {
-		a.log.Info("home put on the surface", "x", int(h.X), "z", int(h.Z), "from_y", h.Y, "y", y)
+		a.log.Info("home put on the surface", "x", explore.Block(h.X), "z", explore.Block(h.Z), "from_y", h.Y, "y", y)
 		h.Y = y
 		a.savePlaces()
 	}
@@ -523,7 +523,7 @@ func (a *Agent) placesNote() string {
 		return ""
 	}
 	h := *a.places.Home
-	note := fmt.Sprintf("- твоя нора (вход): x=%d y=%d z=%d, %d блоков на %s\n", int(h.X), int(h.Y), int(h.Z),
+	note := fmt.Sprintf("- твоя нора (вход): x=%d y=%d z=%d, %d блоков на %s\n", explore.Block(h.X), explore.Block(h.Y), explore.Block(h.Z),
 		int(math.Hypot(h.X-a.pos.X, h.Z-a.pos.Z)), explore.Direction(a.pos, h.X, h.Z))
 	return note + a.places.Describe(a.pos, 5)
 }
@@ -544,5 +544,5 @@ func flyOutTarget(pos explore.Pos, tx, tz int, haveTarget bool) (int, int) {
 		return tx, tz
 	}
 	k := flyOutMin / d
-	return int(pos.X + dx*k), int(pos.Z + dz*k)
+	return explore.Block(pos.X + dx*k), explore.Block(pos.Z + dz*k)
 }
