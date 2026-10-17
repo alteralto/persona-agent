@@ -35,6 +35,10 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	if time.Since(a.lastRequest) < 30*time.Second {
 		return false
 	}
+	// Judging a riddle: it stays where it set it ("на юго-востоке от меня" holds); talk only.
+	if a.judging() {
+		return a.mingle(ctx)
+	}
 	// Staying a while next to people (a visit, a place, a sign): not just standing there.
 	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Now().Before(a.lingerUntil) {
 		return a.mingle(ctx)
@@ -346,10 +350,11 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	}
 	a.lastMingle = time.Now()
 	a.partner, a.partnerAt = near.name, time.Now()
-	free := time.Since(a.lastRequest) > 90*time.Second // "стой тут" a minute ago: words only
+	// "Стой тут" a minute ago, or judging a riddle: words only.
+	free := time.Since(a.lastRequest) > 90*time.Second && !a.judging()
 	r := rand.Float64()
 	switch {
-	case free && r < 0.08 && time.Since(a.lastGame) > gameEvery && a.startGame(ctx, []string{gameRiddle, gameRace}[rand.IntN(2)], ""):
+	case free && !a.cfg.NoOwnGames && r < 0.08 && time.Since(a.lastGame) > gameEvery && a.startGame(ctx, []string{gameRiddle, gameRace}[rand.IntN(2)], ""):
 		a.log.Info("mingle: game", "player", near.name)
 		return true
 	case free && a.creative && r < 0.15 && a.startFlightShow(ctx):

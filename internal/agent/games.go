@@ -93,7 +93,8 @@ func (a *Agent) startGame(ctx context.Context, kind, asker string) bool {
 	}
 	pl, ok := a.gamePlace(r)
 	if !ok {
-		a.log.Info("game: no place for it", "kind", kind)
+		a.log.Info("game: no place for it", "kind", kind, "x", explore.Block(a.pos.X), "z", explore.Block(a.pos.Z),
+			"places", len(a.places.List))
 		if asker != "" {
 			a.enqueue(replyJob{prompt: fmt.Sprintf("Игрок %s позвал тебя поиграть, а ты не знаешь рядом ни одного "+
 				"подходящего места для игры. Скажи об этом одной фразой до 120 символов и пообещай сначала осмотреться.",
@@ -164,8 +165,11 @@ func (a *Agent) checkGame(ctx context.Context, pos explore.Pos) {
 		d, dir := a.placeDistDir(g.place)
 		a.log.Info("game: nobody won", "kind", g.kind, "place", g.place.Desc)
 		a.game = nil
-		a.enqueue(replyJob{prompt: fmt.Sprintf("Никто так и не добрался до загаданного места (%s, на %s, около %d "+
-			"блоков). Раскрой ответ и подшути по-доброму, одной-двумя фразами до 160 символов.", g.place.Desc, dir, d),
+		// Said plainly what the place was: "раскрой ответ" alone once got a new riddle with the
+		// answer "нос".
+		a.enqueue(replyJob{prompt: fmt.Sprintf("Игра закончилась: никто не нашёл место, которое ты загадал. Скажи "+
+			"прямо, что это было: %s — на %s от тебя, около %d блоков. Не загадывай новых загадок. Подшути по-доброму, "+
+			"одной-двумя фразами до 160 символов.", g.place.Desc, dir, d),
 			history: slices.Clone(a.history), at: time.Now()})
 		return
 	}
@@ -217,6 +221,10 @@ func (a *Agent) endGame(ctx context.Context, winner string) {
 		"Одной-двумя фразами до 160 символов, в характере.", spokenName(winner), kind, g.place.Desc, what),
 		history: slices.Clone(a.history), at: time.Now()})
 }
+
+// judging: a riddle is under way, and the clues say where the place is from the bot -- so it
+// keeps its place: no shows, outings or flights after others till it is over.
+func (a *Agent) judging() bool { return a.game != nil && a.game.kind == gameRiddle }
 
 // placeDistDir: how far a place is from the bot, rounded to tens, and which way.
 func (a *Agent) placeDistDir(p explore.Place) (int, string) {

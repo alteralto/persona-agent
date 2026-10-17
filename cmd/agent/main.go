@@ -59,6 +59,7 @@ func main() {
 		PeopleDir:       env("PEOPLE_DIR", `data\people`),
 		AutoCreative:    env("AUTO_CREATIVE", "false") == "true",
 		ActivityEvery:   envDuration("ACTIVITY_EVERY", 30*time.Second),
+		NoOwnGames:      env("OWN_GAMES", "1") == "0",
 		FlightShare:     envFloat("FLIGHT_SHARE", 0),
 		Home:            homeFromEnv(env("HOME_XZ", "")),
 		CreativeCommand: env("CREATIVE_COMMAND", "/gamemode creative"),

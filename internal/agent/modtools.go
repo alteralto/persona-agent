@@ -454,7 +454,7 @@ const (
 // joinFlyers takes off beside a player in the air: the one it follows at once, anyone close by
 // now and then. An elytra flyer gets an elytra wingman; a creative flyer, creative flight.
 func (a *Agent) joinFlyers(ctx context.Context) bool {
-	if !a.fork || a.flying || a.hovering || a.retryFlight != nil {
+	if !a.fork || a.flying || a.hovering || a.retryFlight != nil || a.judging() {
 		return false
 	}
 	// Whom to go up with: the one it follows; else the one it is with right now (visiting,

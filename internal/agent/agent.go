@@ -54,6 +54,8 @@ type Config struct {
 	// AutoCreative: on this server the bot asks for creative mode with CreativeCommand.
 	// ActivityEvery: start something on the bot's own initiative this often (0 = off).
 	ActivityEvery time.Duration
+	// NoOwnGames: games only when asked, never of its own accord (OWN_GAMES=0).
+	NoOwnGames bool
 	// Home: where the bot lives, set by hand ("x,z"); nil = where it first stood.
 	Home *explore.Pos
 	// FlightShare: share of activities that are flights (0 = the usual mix, 15 %).
