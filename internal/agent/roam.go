@@ -236,6 +236,7 @@ func (a *Agent) roam(ctx context.Context) {
 	if h := a.cfg.Home; h != nil && (a.places.Home == nil || a.places.Home.X != h.X || a.places.Home.Z != h.Z) {
 		home := explore.Pos{X: h.X, Y: pos.Y, Z: h.Z} // set by hand (HOME=x,z): an open spot, not a bunker
 		a.places.Home = &home
+		a.homeSettled = false
 		a.savePlaces()
 		a.log.Info("home set from config", "x", int(h.X), "z", int(h.Z))
 	}
@@ -245,6 +246,7 @@ func (a *Agent) roam(ctx context.Context) {
 		a.savePlaces()
 		a.log.Info("home set", "x", int(pos.X), "z", int(pos.Z))
 	}
+	a.settleHome(ctx, pos)
 	if !a.protected && a.cfg.ProtectRadius > 0 {
 		a.protectBuilds(ctx)
 	}
@@ -460,6 +462,53 @@ func (a *Agent) cancelTrip(ctx context.Context) {
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": "@stop"}); err != nil {
 		a.log.Warn("explore stop", "err", err)
 	}
+}
+
+// homeSurfaceNear: how close the bot must be for the home column to be loaded and measured.
+const homeSurfaceNear = 64.0
+
+// settleHome puts the home point on the top surface of its column -- the ground, or the
+// platform over it. Home.Y used to be the bot's own height when home was set, and once that was
+// mid-air between the ground and a platform: flights home "arrived" up there and glided off.
+// Measured once per run, when near enough for the column to be loaded.
+func (a *Agent) settleHome(ctx context.Context, pos explore.Pos) {
+	h := a.places.Home
+	if h == nil || a.homeSettled || math.Hypot(h.X-pos.X, h.Z-pos.Z) > homeSurfaceNear {
+		return
+	}
+	y, ok := a.surfaceY(ctx, int(math.Floor(h.X)), int(math.Floor(h.Z)), int(pos.Y)+64, int(pos.Y)-64)
+	if !ok {
+		return // not loaded yet: again next time
+	}
+	a.homeSettled = true
+	if math.Abs(y-h.Y) >= 1 {
+		a.log.Info("home put on the surface", "x", int(h.X), "z", int(h.Z), "from_y", h.Y, "y", y)
+		h.Y = y
+		a.savePlaces()
+	}
+}
+
+// surfaceY is the height to stand at on the topmost solid block of column x,z between from and
+// to (top down). Not ok when the column is not loaded or has nothing solid in that range.
+func (a *Agent) surfaceY(ctx context.Context, x, z, from, to int) (float64, bool) {
+	from, to = min(from, 319), max(to, -64)
+	for y := from; y >= to; y-- {
+		text, err := a.mc.Call(ctx, "getBlockAt", map[string]any{"x": x, "y": y, "z": z})
+		if err != nil {
+			return 0, false
+		}
+		var b struct {
+			ID          string `json:"id"`
+			Replaceable string `json:"replaceable"`
+		}
+		if json.Unmarshal([]byte(text), &b) != nil || b.ID == "minecraft:void_air" {
+			return 0, false
+		}
+		if b.Replaceable == "false" {
+			return float64(y + 1), true
+		}
+	}
+	return 0, false
 }
 
 func (a *Agent) savePlaces() {

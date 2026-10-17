@@ -62,6 +62,7 @@ type World struct {
 	signs     []Sign
 	buildings []building
 	lakes     [][4]float64 // x0, z0, x1, z1
+	platforms [][4]int     // x, z, r, top block y: a raised floor over the ground
 	swimming  bool
 	swimTo    [2]float64
 	free      int
@@ -137,6 +138,14 @@ func (w *World) AddBuilding(x, z, r int, block string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.buildings = append(w.buildings, building{x, z, r, block})
+}
+
+// AddPlatform puts a floor whose top block is at y over the square of radius r round x, z;
+// elsewhere the ground's top block is at 69 (the bot stands at 70).
+func (w *World) AddPlatform(x, z, r, y int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.platforms = append(w.platforms, [4]int{x, z, r, y})
 }
 
 // AddLake puts water over the rectangle: the bot there is "in water" and walks barely move it.
@@ -427,6 +436,18 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		return out, false
 	case "clearProtectedAreas", "markProtectedArea":
 		return map[string]any{"ok": true}, false
+	case "getBlockAt":
+		x, y, z := intArg(args, "x", 0), intArg(args, "y", 0), intArg(args, "z", 0)
+		solid := y <= 69
+		for _, p := range w.platforms {
+			if max(abs(x-p[0]), abs(z-p[1])) <= p[2] && y == p[3] {
+				solid = true
+			}
+		}
+		if solid {
+			return map[string]any{"id": "minecraft:grass_block", "replaceable": "false"}, false
+		}
+		return map[string]any{"id": "minecraft:air", "replaceable": "true"}, false
 	case "readSigns":
 		r := float64(intArg(args, "radius", 16))
 		var out []map[string]any
