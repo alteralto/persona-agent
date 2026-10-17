@@ -388,6 +388,7 @@ func (a *Agent) playersInAir(ctx context.Context) []flyingPlayer {
 			Distance string `json:"distance"`
 			Gliding  bool   `json:"gliding"`
 			Hovering bool   `json:"hovering"`
+			Pos      string `json:"pos"`
 		} `json:"players"`
 	}
 	if json.Unmarshal([]byte(text), &st) != nil {
@@ -399,11 +400,60 @@ func (a *Agent) playersInAir(ctx context.Context) []flyingPlayer {
 		switch {
 		case p.Gliding:
 			out = append(out, flyingPlayer{p.Name, airGlide, d})
-		case p.Hovering:
+		case p.Hovering && !a.parkedInAir(p.Name, p.Pos, time.Now()):
 			out = append(out, flyingPlayer{p.Name, airHover, d})
 		}
 	}
 	return out
+}
+
+// hoverMark is where a creative flyer was when last seen moving.
+type hoverMark struct {
+	x, y, z float64
+	at      time.Time
+}
+
+// parkedAfter: a creative flyer who has stayed within parkedRadius this long is standing in the
+// air (building, AFK), not flying -- nothing to circle round, or the bot orbits them for ever.
+const (
+	parkedAfter  = 12 * time.Second
+	parkedRadius = 3.0
+)
+
+// parkedInAir says whether a hovering player has been hanging in one place for a while (or is
+// seen for the first time, so nobody knows yet), and remembers where they were seen moving last.
+func (a *Agent) parkedInAir(name, pos string, now time.Time) bool {
+	x, y, z, ok := parseXYZ(pos)
+	if !ok {
+		return false
+	}
+	if a.hoverMarks == nil {
+		a.hoverMarks = map[string]hoverMark{}
+	}
+	m, seen := a.hoverMarks[name]
+	if !seen {
+		// Not known yet whether they are going anywhere: wait for a second look.
+		a.hoverMarks[name] = hoverMark{x, y, z, now}
+		return true
+	}
+	if math.Hypot(math.Hypot(x-m.x, z-m.z), y-m.y) > parkedRadius {
+		a.hoverMarks[name] = hoverMark{x, y, z, now}
+		return false
+	}
+	return now.Sub(m.at) >= parkedAfter
+}
+
+// parseXYZ reads "x,y,z" as getGameState prints positions.
+func parseXYZ(s string) (x, y, z float64, ok bool) {
+	p := strings.Split(s, ",")
+	if len(p) != 3 {
+		return 0, 0, 0, false
+	}
+	var err [3]error
+	x, err[0] = strconv.ParseFloat(strings.TrimSpace(p[0]), 64)
+	y, err[1] = strconv.ParseFloat(strings.TrimSpace(p[1]), 64)
+	z, err[2] = strconv.ParseFloat(strings.TrimSpace(p[2]), 64)
+	return x, y, z, err[0] == nil && err[1] == nil && err[2] == nil
 }
 
 // flyTogether: how near a flying player must be for the bot to join them, and how long after

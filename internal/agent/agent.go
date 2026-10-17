@@ -118,9 +118,10 @@ type Agent struct {
 	navGaveUp       time.Time // the pathfinder said the goal is unreachable
 	partner         string    // the player it is with right now: visiting, talking to
 	partnerAt       time.Time
-	hovering        bool      // creative-flying beside a player (modtools.go)
-	lastFlyTogether time.Time // the last time it joined a player in the air
-	leading         bool      // walking players to the burrow
+	hovering        bool                 // creative-flying beside a player (modtools.go)
+	lastFlyTogether time.Time            // the last time it joined a player in the air
+	hoverMarks      map[string]hoverMark // where each creative flyer was last seen moving (modtools.go)
+	leading         bool                 // walking players to the burrow
 
 	// Fork features (see modtools.go).
 	creative       bool // from getGameState when the fork reports it, else from config
