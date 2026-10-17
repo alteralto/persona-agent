@@ -423,10 +423,11 @@ const (
 // parkedInAir says whether a hovering player has been hanging in one place for a while (or is
 // seen for the first time, so nobody knows yet), and remembers where they were seen moving last.
 func (a *Agent) parkedInAir(name, pos string, now time.Time) bool {
-	x, y, z, ok := parseXYZ(pos)
-	if !ok {
+	p, err := explore.ParsePos(pos)
+	if err != nil {
 		return false
 	}
+	x, y, z := p.X, p.Y, p.Z
 	if a.hoverMarks == nil {
 		a.hoverMarks = map[string]hoverMark{}
 	}
@@ -441,19 +442,6 @@ func (a *Agent) parkedInAir(name, pos string, now time.Time) bool {
 		return false
 	}
 	return now.Sub(m.at) >= parkedAfter
-}
-
-// parseXYZ reads "x,y,z" as getGameState prints positions.
-func parseXYZ(s string) (x, y, z float64, ok bool) {
-	p := strings.Split(s, ",")
-	if len(p) != 3 {
-		return 0, 0, 0, false
-	}
-	var err [3]error
-	x, err[0] = strconv.ParseFloat(strings.TrimSpace(p[0]), 64)
-	y, err[1] = strconv.ParseFloat(strings.TrimSpace(p[1]), 64)
-	z, err[2] = strconv.ParseFloat(strings.TrimSpace(p[2]), 64)
-	return x, y, z, err[0] == nil && err[1] == nil && err[2] == nil
 }
 
 // flyTogether: how near a flying player must be for the bot to join them, and how long after
@@ -551,7 +539,31 @@ func (a *Agent) startHover(ctx context.Context, nick string) bool {
 	return true
 }
 
-// checkHover polls a creative flight beside someone; true while it goes on.
+// startHoverTo creative-flies to x, z with no elytra: straight up out of a pit, across, down onto
+// the top surface there. Creative with the fork only.
+func (a *Agent) startHoverTo(ctx context.Context, x, z int) bool {
+	if !a.creative || !a.fork {
+		return false
+	}
+	text, err := a.mc.Call(ctx, "hoverTo", map[string]any{"x": x, "z": z})
+	if err != nil {
+		a.log.Warn("hoverTo", "err", err)
+		return false
+	}
+	var st struct {
+		Phase  string `json:"phase"`
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal([]byte(text), &st) != nil || st.Phase != "flying" {
+		a.log.Info("hover: not started", "x", x, "z", z, "reason", st.Reason)
+		return false
+	}
+	a.hovering = true
+	a.log.Info("hover: flying to", "x", x, "z", z)
+	return true
+}
+
+// checkHover polls a creative flight beside someone or to a point; true while it goes on.
 func (a *Agent) checkHover(ctx context.Context) bool {
 	if !a.hovering {
 		return false
@@ -565,6 +577,7 @@ func (a *Agent) checkHover(ctx context.Context) bool {
 		Phase  string  `json:"phase"`
 		Reason string  `json:"reason"`
 		Gap    float64 `json:"gap"`
+		Leader string  `json:"leader"`
 	}
 	if json.Unmarshal([]byte(text), &st) != nil {
 		return true
@@ -574,7 +587,7 @@ func (a *Agent) checkHover(ctx context.Context) bool {
 	}
 	a.hovering = false
 	a.log.Info("hover: "+st.Phase, "reason", st.Reason)
-	if st.Phase == "done" {
+	if st.Phase == "done" && st.Leader != "" {
 		a.mood("happy", 6)
 		a.celebrate(ctx, "flew together")
 	}
@@ -652,6 +665,13 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 					return false
 				}
 			}
+			// Stuck and the elytra cannot go up from here (a pit, a roof): creative flight needs no
+			// take-off run and no open sky -- straight up and out, where it can.
+			if a.flyOut && st.Reason != "in water" && a.startHoverTo(ctx, a.flyX, a.flyZ) {
+				a.flyOut = false
+				a.log.Info("stuck: elytra could not go up, hovering out", "reason", st.Reason)
+				return false
+			}
 			// Under a roof, boxed in, in water: go there on foot instead (walks out of a bunker).
 			if a.followAfter == "" && (st.Reason == "under a roof" || st.Reason == "blocked" || st.Reason == "in water") {
 				cmd := fmt.Sprintf("@goto %d %d", a.flyX, a.flyZ)
@@ -665,6 +685,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		if st.Phase == "failed" && (st.Reason == "no elytra" || st.Reason == "no fireworks") && !a.creative {
 			a.noFlight = true // survival without the kit: walk from now on
 		}
+		a.flyOut = false
 		return false
 	}
 	return true

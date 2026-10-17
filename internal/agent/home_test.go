@@ -41,3 +41,16 @@ func TestSimHomeOnSurface(t *testing.T) {
 		})
 	}
 }
+
+// Down a pit the elytra cannot take off ("under a roof"): the way out is creative flight, and
+// then the follow goes on.
+func TestSimHoversOutOfPit(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true}, nil)
+	r.w.AddPit(0, 0, 2)
+	r.w.AddPlayer("Alex", 25, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, иди за мной")
+	r.waitFor("@follow Alex", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
+	r.waitFor("creative flight out", 20*time.Second, func() bool { return r.w.Has("tool", "hoverTo") })
+	r.waitFor("out of the pit, next to Alex", 5*time.Second, func() bool { return r.w.DistanceTo("Alex") < 4 })
+}

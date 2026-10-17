@@ -158,8 +158,17 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	far := haveTarget && math.Hypot(float64(tx)-pos.X, float64(tz)-pos.Z) > a.flyAbove()
 	if a.creative && (far || a.stuckCount >= 2) {
 		fx, fz := flyOutTarget(pos, tx, tz, haveTarget)
-		if a.startFlight(ctx, fx, fz) {
-			a.log.Info("stuck: flying out", "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "to_x", fx, "to_z", fz, "times", a.stuckCount)
+		// On the elytra, else (no rockets, no elytra) in creative flight straight away; an elytra
+		// that cannot go up from here hands over to creative flight too (checkFlight).
+		how := ""
+		switch {
+		case a.startFlight(ctx, fx, fz):
+			how, a.flyOut = "flying out", true
+		case a.startHoverTo(ctx, fx, fz):
+			how = "hovering out"
+		}
+		if how != "" {
+			a.log.Info("stuck: "+how, "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "to_x", fx, "to_z", fz, "times", a.stuckCount)
 			a.trip, a.leading = nil, false // the outing/activity keeps its target; flight lands near it
 			if following {
 				a.followAfter = a.following // after landing: keep up with them on foot

@@ -135,6 +135,7 @@ type Agent struct {
 	botsNear       []string
 	botsKnown      bool
 	roofRetries    int
+	flyOut         bool // the flight under way is a way out of a place it was stuck in (roam.go)
 	retryFlight    *[2]int
 	retryFrom      [2]int
 	retrySince     time.Time  // when it started walking out from under the roof

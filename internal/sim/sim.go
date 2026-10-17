@@ -63,6 +63,7 @@ type World struct {
 	buildings []building
 	lakes     [][4]float64 // x0, z0, x1, z1
 	platforms [][4]int     // x, z, r, top block y: a raised floor over the ground
+	pits      [][3]float64 // x, z, r: a hole no walk gets out of and no elytra takes off from
 	swimming  bool
 	swimTo    [2]float64
 	free      int
@@ -74,6 +75,9 @@ type World struct {
 	manualAt  time.Time // the player last steered the bot by hand
 	flyAt     time.Time
 	flown     int
+
+	hoverPhase  string // creative flight to a point (hoverTo): "", "flying", "done"
+	hoverTarget [2]float64
 }
 
 func New(o Options) *World {
@@ -153,6 +157,23 @@ func (w *World) AddLake(x0, z0, x1, z1 float64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.lakes = append(w.lakes, [4]float64{min(x0, x1), min(z0, z1), max(x0, x1), max(z0, z1)})
+}
+
+// AddPit digs a hole of radius r round x, z: a walk in it goes nowhere and an elytra cannot take
+// off from it ("under a roof"); creative flight gets out.
+func (w *World) AddPit(x, z, r float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pits = append(w.pits, [3]float64{x, z, r})
+}
+
+func (w *World) inPitLocked(x, z float64) bool {
+	for _, p := range w.pits {
+		if math.Hypot(x-p[0], z-p[1]) <= p[2] {
+			return true
+		}
+	}
+	return false
 }
 
 // PutBot moves the bot, e.g. into a lake.
@@ -272,8 +293,19 @@ func (w *World) stepLocked() {
 			p[1] += v[1] * dt
 		}
 	}
+	if w.hoverPhase == "flying" {
+		if w.moveLocked(w.hoverTarget, w.opt.FlySpeed*dt, 0.5) {
+			w.hoverPhase = "done"
+			w.logLocked("land", fmt.Sprintf("hover %d %d", int(w.x), int(w.z)))
+		}
+		return
+	}
 	switch w.flyPhase {
 	case "takeoff":
+		if w.inPitLocked(w.x, w.z) {
+			w.flyPhase, w.flyReason = "failed", "under a roof"
+			return
+		}
 		if now.Sub(w.flyAt) > 200*time.Millisecond {
 			w.flyPhase = "flying"
 			w.rockets++
@@ -306,8 +338,8 @@ func (w *World) stepLocked() {
 		}
 		return
 	}
-	// Like the real pathfinder: in water a walk goes nowhere.
-	if w.inWaterLocked(w.x, w.z) {
+	// Like the real pathfinder: in water or down a pit a walk goes nowhere.
+	if w.inWaterLocked(w.x, w.z) || w.inPitLocked(w.x, w.z) {
 		return
 	}
 	if w.follow != "" {
@@ -376,7 +408,7 @@ func (w *World) Handler() http.Handler {
 
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
 	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true, "flyRoute": true,
-	"salute": true, "saluteStatus": true}
+	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
@@ -546,6 +578,21 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		w.flown++
 		w.logLocked("fly", "wingman "+nick)
 		return map[string]any{"phase": "equip", "leader": nick}, false
+	case "hoverTo":
+		if w.opt.Mode != "creative" {
+			return map[string]any{"phase": "failed", "reason": "not creative"}, false
+		}
+		w.goal, w.follow = nil, ""
+		w.hoverTarget = [2]float64{float64(intArg(args, "x", 0)) + 0.5, float64(intArg(args, "z", 0)) + 0.5}
+		w.hoverPhase = "flying"
+		return map[string]any{"phase": "flying"}, false
+	case "hoverStatus":
+		ph := w.hoverPhase
+		if ph == "" {
+			ph = "idle"
+		}
+		return map[string]any{"phase": ph, "reason": map[bool]string{true: "landed"}[ph == "done"],
+			"target": fmt.Sprintf("%d,%d", int(w.hoverTarget[0]), int(w.hoverTarget[1]))}, false
 	case "flyStatus":
 		return map[string]any{"phase": w.flyPhase, "reason": w.flyReason, "rocketsUsed": w.rockets}, false
 	case "flyStop":
