@@ -26,7 +26,7 @@ import sounddevice as sd
 import soxr
 from faster_whisper import WhisperModel
 from piper import PiperVoice
-from py4j.java_gateway import CallbackServerParameters, JavaGateway
+from py4j.java_gateway import CallbackServerParameters, GatewayParameters, JavaGateway
 
 log = logging.getLogger("voice")
 
@@ -314,6 +314,7 @@ def main():
     p.add_argument("--agent", default="http://127.0.0.1:8092/voice")
     p.add_argument("--hotwords", default="Пыхтун")
     p.add_argument("--say", help="speak this once and exit (voice check)")
+    p.add_argument("--bot", default=bot_nick(), help="the bot's nickname: whose game to hear through")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # Py4J logs every callback at INFO: one line per 20 ms voice packet (5.7 MB in an evening).
@@ -336,41 +337,86 @@ def main():
     hearing = Hearing(phrases)
     threading.Thread(target=transcriber, args=(phrases, model, args.agent, args.hotwords), daemon=True).start()
 
-    gateway = JavaGateway(
-        callback_server_parameters=CallbackServerParameters(),
-        python_server_entry_point=GameCallback(hearing),
-        start_callback_server=True,
-    )
     # The game may start after this service (the control panel starts everything at once):
-    # reach the mod in the background and speak meanwhile. A handshake that failed here once
-    # left the process alive on the callback port and serving nothing.
-    threading.Thread(target=await_mod, args=(gateway,), daemon=True).start()
+    # reach the mod in the background and speak meanwhile.
+    threading.Thread(target=await_mod, args=(GameCallback(hearing), args.bot), daemon=True).start()
     log.info("speaking on %s, listening for /say on :%d", sd.query_devices(speaker.device)["name"], args.port)
     serve(args.port, speaker)
 
 
-def await_mod(gateway: JavaGateway) -> None:
-    """Keep the mod handshake alive: retry every 3 s until the game is up, then check every 5 s
-    and shake hands again after the game restarts (else the bot stops hearing players).
+# The mod's py4j port: 25333, or two up for each one taken when it started (a second game
+# client on this machine); the callback to us is on the port after it.
+MOD_PORTS = range(25333, 25353, 2)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def bot_nick() -> str:
+    """BOT_NICK from the environment or the agent's .env (only that line is read)."""
+    if os.environ.get("BOT_NICK"):
+        return os.environ["BOT_NICK"]
+    try:
+        with open(os.path.join(ROOT, ".env"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("BOT_NICK="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def find_mod(nick: str) -> "int | None":
+    """The port of the game the bot plays in: the first mod whose player is the bot (any, with
+    no nickname). The port is not fixed -- the mod once saved a fallback port to the settings
+    both clients share, and this service waited on 25333 all evening, hearing nothing."""
+    for port in MOD_PORTS:
+        probe = JavaGateway(gateway_parameters=GatewayParameters(port=port))
+        try:
+            name = str(probe.entry_point.getGameState()["self"]["name"])
+        except Exception:
+            continue
+        finally:
+            probe.close()
+        if not nick or name.lower() == nick.lower():
+            return port
+    return None
+
+
+def await_mod(callback: "GameCallback", nick: str) -> None:
+    """Keep the mod handshake alive: look for the bot's game every 3 s until it is up, then check
+    every 5 s, and find it again after the game restarts (else the bot stops hearing players).
     py4j's own tracebacks muted."""
     py4j_log = logging.getLogger("py4j")
+    gateway = None
     waiting = False
-    up = False
     while True:
         py4j_log.setLevel(logging.CRITICAL)
         try:
-            if up:
+            if gateway is not None:
                 gateway.jvm.java.lang.System.currentTimeMillis()  # the game is still there?
             else:
+                port = find_mod(nick)
+                if port is None:
+                    raise ConnectionError("no game")
+                gateway = JavaGateway(
+                    gateway_parameters=GatewayParameters(port=port),
+                    callback_server_parameters=CallbackServerParameters(port=port + 1),
+                    python_server_entry_point=callback,
+                    start_callback_server=True,
+                )
                 ok = gateway.entry_point.handshake()
-                log.info("py4j callback server up; mod handshake: %s", ok)
-                up, waiting = True, False
+                log.info("mod on py4j %d (%s); handshake: %s", port, nick or "any player", ok)
+                waiting = False
         except Exception:
-            if up:
-                log.info("game gone; shaking hands again when it is back")
-                up = False
+            if gateway is not None:
+                log.info("game gone; looking for it again")
+                try:
+                    gateway.shutdown()
+                except Exception:
+                    pass
+                gateway = None
             if not waiting:
-                log.info("waiting for the game (mod py4j on 25333)")
+                log.info("waiting for the game of %s (mod py4j on %d..%d)", nick or "any player",
+                         MOD_PORTS.start, MOD_PORTS.stop - 2)
                 waiting = True
             time.sleep(3)
             continue
