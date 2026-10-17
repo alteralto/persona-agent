@@ -25,6 +25,8 @@ const (
 	ActSalute    = "salute"    // rule-only: a fireworks show from the ground
 	ActFlyTricks = "flytricks" // rule-only: a flight with aerobatic figures
 	ActFlyRoute  = "flyroute"  // rule-only: a tour round places without landing
+	ActRiddle    = "riddle"    // rule-only: a riddle about a place, a present to the first there
+	ActRace      = "race"      // rule-only: a race to a place
 )
 
 const (
@@ -179,6 +181,8 @@ var (
 	flyRouteRule  = regexp.MustCompile(`(?i)(облет|облёт|облети|патрул|покажи\s+окрестност\S*\s+с\s+(воздуха|неба))`)
 	flyLowRule    = regexp.MustCompile(`(?i)(бреющ|(пролети|лети|летай|полетай|полетели)\s+(пониже|низко|над\s+самой\s+землёй))`)
 	saluteRule    = regexp.MustCompile(`(?i)(салют|(запусти|устрой|покажи|пусти)\s+фейерверк|фейерверк(и|ов)?\s+(запусти|покажи|давай))`)
+	riddleRule    = regexp.MustCompile(`(?i)(загада(й|ешь)|загадк|квест|поиграем|сыграем|давай\s+(игр|поигра|сыгра))`)
+	raceRule      = regexp.MustCompile(`(?i)(гонк[уаи]|наперегонки|кто\s+(первый|первым|быстрее)\s+(долетит|добежит|доберётся|доберется))`)
 	supplyRule    = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
 	defendRule    = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
 	stopRule      = regexp.MustCompile(`(?i)(^|пыхтун[,! ]+)(стой|замри|подожди|постой)|подожд(и|ёте|ете) (меня|со мной)`)
@@ -195,6 +199,8 @@ func applyRules(d Decision, text string) (Decision, bool) {
 		action string
 	}{
 		{supplyRule, ActSupply},
+		{raceRule, ActRace}, // "гонка на элитрах" is a race, not a flight
+		{riddleRule, ActRiddle},
 		{saluteRule, ActSalute},
 		{flyToRule, ActFlyTo},
 		{flyTricksRule, ActFlyTricks},

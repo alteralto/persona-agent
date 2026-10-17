@@ -349,6 +349,9 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	free := time.Since(a.lastRequest) > 90*time.Second // "стой тут" a minute ago: words only
 	r := rand.Float64()
 	switch {
+	case free && r < 0.08 && time.Since(a.lastGame) > gameEvery && a.startGame(ctx, []string{gameRiddle, gameRace}[rand.IntN(2)], ""):
+		a.log.Info("mingle: game", "player", near.name)
+		return true
 	case free && a.creative && r < 0.15 && a.startFlightShow(ctx):
 		a.log.Info("mingle: show", "player", near.name)
 		return true

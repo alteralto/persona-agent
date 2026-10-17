@@ -135,7 +135,10 @@ type Agent struct {
 	botsNear       []string
 	botsKnown      bool
 	roofRetries    int
-	flyOut         bool // the flight under way is a way out of a place it was stuck in (roam.go)
+	game           *game     // a riddle or a race under way (games.go)
+	lastGame       time.Time // when the last one started
+	gameRecent     []string  // places of the last games, not played again soon
+	flyOut         bool      // the flight under way is a way out of a place it was stuck in (roam.go)
 	retryFlight    *[2]int
 	retryFrom      [2]int
 	retrySince     time.Time  // when it started walking out from under the roof
@@ -435,6 +438,10 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		a.activity = nil // a request beats the bot's own plans
 	}
 	a.act(ctx, d.Action, msg.Nick)
+	if d.Action == ActRiddle || d.Action == ActRace {
+		a.remember(msg) // the game's announcement (or why there is none) is the reply
+		return
+	}
 
 	// Answer when called by name or when a command was accepted (so the player hears it).
 	if fromBot || a.mentioned(msg.Text) || d.Agreed && d.Action != ActWait {
@@ -607,6 +614,18 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 		}
 	case ActSalute:
 		a.salute(ctx, 4+rand.IntN(2)) // asked for: a short show
+		return
+	case ActRiddle, ActRace:
+		if a.game != nil {
+			a.enqueue(replyJob{prompt: fmt.Sprintf("Игрок %s зовёт поиграть, а у вас уже идёт игра. Напомни ему "+
+				"об этом одной фразой до 100 символов.", spokenName(nick)), history: slices.Clone(a.history), at: time.Now()})
+			return
+		}
+		kind := gameRiddle
+		if action == ActRace {
+			kind = gameRace
+		}
+		a.startGame(ctx, kind, nick)
 		return
 	case ActFly, ActFlyLow, ActFlyTricks, ActFlyRoute:
 		a.trip, a.following = nil, ""

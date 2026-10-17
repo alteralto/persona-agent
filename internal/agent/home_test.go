@@ -3,6 +3,7 @@ package agent_test
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,4 +54,49 @@ func TestSimHoversOutOfPit(t *testing.T) {
 	r.waitFor("@follow Alex", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
 	r.waitFor("creative flight out", 20*time.Second, func() bool { return r.w.Has("tool", "hoverTo") })
 	r.waitFor("out of the pit, next to Alex", 5*time.Second, func() bool { return r.w.DistanceTo("Alex") < 4 })
+}
+
+// A riddle about a place it knows: the first player to get there is congratulated and gets a
+// present by @give.
+func TestSimRiddleWinnerGetsPresent(t *testing.T) {
+	var path string
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(cfg *agent.Config) {
+		path = cfg.PlacesPath
+		raw, _ := json.Marshal(map[string]any{"places": []map[string]any{
+			{"desc": "вода, озеро или река", "x": 60, "z": 10},
+			{"desc": "табличка «привет»", "x": 50, "z": 0}, // signs make poor riddles
+		}})
+		if err := os.WriteFile(path, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, загадай загадку!")
+	r.waitFor("riddle asked", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	if !strings.Contains(r.log.String(), "озеро") {
+		t.Fatal("riddle not about the lake")
+	}
+	r.w.AddPlayer("Alex", 61, 12) // there
+	r.waitFor("present for Alex", 5*time.Second, func() bool { return r.w.Has("cmd", "@give Alex") })
+}
+
+// A race: the start a few seconds after the announcement, the bot flies too, and the first at
+// the place wins -- here the bot itself.
+func TestSimRace(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true}, func(cfg *agent.Config) {
+		raw, _ := json.Marshal(map[string]any{"places": []map[string]any{{"desc": "серая постройка", "x": 90, "z": 0}}})
+		if err := os.WriteFile(cfg.PlacesPath, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, давай гонку!")
+	r.waitFor("race announced", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	if r.w.Has("say", "марш") {
+		t.Fatal("started before the countdown")
+	}
+	r.waitFor("start", 10*time.Second, func() bool { return r.w.Has("say", "марш") })
+	r.waitFor("the bot wins", 5*time.Second, func() bool { return strings.Contains(r.log.String(), "winner=Pyhtun") })
 }
