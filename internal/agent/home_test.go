@@ -97,22 +97,61 @@ func TestSimRiddleWinnerGetsPresent(t *testing.T) {
 	r.waitFor("present for Alex", 5*time.Second, func() bool { return r.w.Has("cmd", "@give Alex") })
 }
 
-// A race: the start a few seconds after the announcement, the bot flies too, and the first at
-// the place wins -- here the bot itself.
-func TestSimRace(t *testing.T) {
-	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true}, func(cfg *agent.Config) {
-		raw, _ := json.Marshal(map[string]any{"places": []map[string]any{{"desc": "серая постройка", "x": 90, "z": 0}}})
+// gamePlaces writes the places the bot knows before it starts.
+func gamePlaces(t *testing.T, places ...map[string]any) func(cfg *agent.Config) {
+	return func(cfg *agent.Config) {
+		raw, _ := json.Marshal(map[string]any{"places": places})
 		if err := os.WriteFile(cfg.PlacesPath, raw, 0o644); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
+}
+
+// While a riddle is on, a searcher who moves nearer the place hears "warmer" at once.
+func TestSimRiddleWarmerColder(t *testing.T) {
+	defer agent.ShortGames(time.Minute, time.Minute, 0, time.Minute, time.Minute)()
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10},
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 10}))
+	r.w.AddPlayer("Alex", 5, 0) // 56 blocks off: cool
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, загадай загадку!")
+	r.waitFor("riddle asked", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	time.Sleep(time.Second)      // seen where they start from
+	r.w.AddPlayer("Alex", 35, 5) // 25 off: warm
+	r.waitFor("warmer", 3*time.Second, func() bool { return strings.Contains(r.log.String(), `msg="riddle: heat" player=Alex band=2 was=1`) })
+}
+
+// A riddle nobody solves: it says what the place was, flies there and fires a rocket over it.
+func TestSimRiddleBeacon(t *testing.T) {
+	defer agent.ShortGames(2*time.Second, time.Minute, time.Minute, time.Minute, time.Minute)()
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true},
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 10}))
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, загадай загадку!")
+	r.waitFor("nobody won", 6*time.Second, func() bool { return strings.Contains(r.log.String(), "game: nobody won") })
+	r.waitFor("to the place", 3*time.Second, func() bool { return r.w.Has("fly", "60 10") })
+	r.waitFor("rocket over it", 8*time.Second, func() bool { return strings.Contains(r.log.String(), "beacon: lit") })
+}
+
+// A race: the bot judges, not races. It flies to the finish, gives the start from there, and the
+// first player at the finish wins.
+func TestSimRace(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true},
+		gamePlaces(t, map[string]any{"desc": "серая постройка", "x": 90, "z": 0}))
 	r.w.AddPlayer("Alex", 5, 0)
 	r.ready()
 	r.w.Say("Alex", "Пыхтун, давай гонку!")
 	r.waitFor("race announced", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
 	if r.w.Has("say", "марш") {
-		t.Fatal("started before the countdown")
+		t.Fatal("started before the judge got to the finish")
 	}
-	r.waitFor("start", 10*time.Second, func() bool { return r.w.Has("say", "марш") })
-	r.waitFor("the bot wins", 5*time.Second, func() bool { return strings.Contains(r.log.String(), "winner=Pyhtun") })
+	r.waitFor("judge to the finish", 3*time.Second, func() bool { return r.w.Has("fly", "90 0") })
+	r.waitFor("start from the finish", 10*time.Second, func() bool { return r.w.Has("say", "марш") })
+	if !strings.Contains(r.log.String(), `msg="race: start" at_finish=true`) {
+		t.Fatal("the start was not given from the finish")
+	}
+	r.waitFor("a rocket for the start", 2*time.Second, func() bool { return r.w.Has("salute", "") })
+	r.w.AddPlayer("Alex", 88, 2) // there
+	r.waitFor("Alex wins", 5*time.Second, func() bool { return strings.Contains(r.log.String(), "winner=Alex") })
 }

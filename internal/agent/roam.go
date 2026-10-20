@@ -243,6 +243,7 @@ func (a *Agent) roam(ctx context.Context) {
 		return
 	}
 	a.checkGame(ctx, pos)
+	a.checkBeacon(ctx, pos)
 	if h := a.cfg.Home; h != nil && (a.places.Home == nil || a.places.Home.X != h.X || a.places.Home.Z != h.Z) {
 		home := explore.Pos{X: h.X, Y: pos.Y, Z: h.Z} // set by hand (HOME=x,z): an open spot, not a bunker
 		a.places.Home = &home

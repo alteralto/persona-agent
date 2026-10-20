@@ -140,6 +140,7 @@ type Agent struct {
 	botsKnown      bool
 	roofRetries    int
 	game           *game     // a riddle or a race under way (games.go)
+	beacon         *beacon   // a rocket due over an unsolved riddle's place (games.go)
 	lastGame       time.Time // when the last one started
 	gameRecent     []string  // places of the last games, not played again soon
 	flyOut         bool      // the flight under way is a way out of a place it was stuck in (roam.go)
