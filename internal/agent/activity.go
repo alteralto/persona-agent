@@ -24,6 +24,10 @@ type activity struct {
 
 const activityTimeout = 90 * time.Second
 
+// activityLinger: a moment at the spot an activity took it to before drifting back (a var: tests
+// that wait for one kind of activity shorten it, or each other draw costs them 20 s).
+var activityLinger = 20 * time.Second
+
 // maybeActivity starts an activity when nobody has asked the bot for anything lately.
 func (a *Agent) maybeActivity(ctx context.Context) bool {
 	// retryFlight: walking out from under a roof to take off again; a new plan now would cancel it.
@@ -181,7 +185,7 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 	act := a.activity
 	if math.Hypot(pos.X-float64(act.x), pos.Z-float64(act.z)) < 4.5 {
 		a.activity = nil
-		a.lingerFor(20 * time.Second) // a moment at the spot before drifting back
+		a.lingerFor(activityLinger)
 		switch act.kind {
 		case "sign":
 			a.places.Add(explore.Place{Desc: "табличка «" + act.label + "»", X: act.x, Z: act.z, Seen: time.Now()})

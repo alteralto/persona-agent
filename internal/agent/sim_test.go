@@ -251,6 +251,9 @@ func TestSimIgnoresOthersTalk(t *testing.T) {
 
 func TestSimReadsSignOnItsOwn(t *testing.T) {
 	// Survival without an elytra: no random flight shows that land out of the sign's range.
+	// Activities are drawn at random: with the usual 20 s stay after each, three other draws
+	// first ran out the minute (1 in 30 runs).
+	defer agent.ShortLinger(200 * time.Millisecond)()
 	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) {
 		c.Creative = false
 		c.ActivityEvery = 100 * time.Millisecond
