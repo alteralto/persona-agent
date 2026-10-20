@@ -184,6 +184,13 @@ type Agent struct {
 	followIdleSince time.Time
 	flying          bool
 	flightStarted   time.Time
+	// His lucky stone in hand (modtools.go keepFavorite). favorite: the mod has it set and he
+	// carries one; the reply worker reads it for the persona note, hence atomic.
+	favorite      atomic.Bool
+	favoriteAt    time.Time
+	favoriteGiven bool
+	favoriteSaid  time.Time
+	noFavorite    bool
 
 	journal *journal
 	people  *memory.Store
@@ -498,12 +505,16 @@ func (a *Agent) idlePrompt(near []string) string {
 		i++
 	}
 	a.lastTopic = i
+	topic := idleTopics[i]
+	if t := a.favoriteTopic(favoriteIdleTopic); t != "" {
+		topic = t
+	}
 	people := append(a.nearbyBots(), near...)
 	if len(people) == 0 {
-		return idlePrompt + " Тема: " + idleTopics[i] + "."
+		return idlePrompt + " Тема: " + topic + "."
 	}
 	who := spokenName(people[rand.IntN(len(people))])
-	return "Рядом с тобой " + who + ". Обратись к " + who + " по имени. Тема: " + idleTopics[i] + ". " +
+	return "Рядом с тобой " + who + ". Обратись к " + who + " по имени. Тема: " + topic + ". " +
 		"Одна короткая фраза до 90 символов. Не выдумывай, что собеседник делает, если этого нет в чате. " +
 		"Не говори, что вокруг тихо или никого нет."
 }
@@ -677,6 +688,9 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			}
 			note = replyMessages(job.history, job.nick, job.text, noteKey, job.places)
 		}
+		if a.favorite.Load() {
+			note[1].Content = favoriteNote + "\n" + note[1].Content
+		}
 		// What the bot remembers about this person goes first: notes and recent exchanges.
 		if a.people != nil && job.nick != "" {
 			if mem := a.people.Context(job.nick, 3); mem != "" {
@@ -795,6 +809,8 @@ func mentions(text string, names []string) bool {
 func (a *Agent) resetModState() {
 	a.protected, a.fork, a.noFlight, a.noTidy, a.noSwim, a.swimming = false, false, false, false, false, false
 	a.fallSavesSet, a.flightKit, a.modeKnown, a.botsKnown = false, false, false, false
+	a.favoriteGiven, a.noFavorite, a.favoriteAt = false, false, time.Time{} // a restarted mod forgets it
+	a.favorite.Store(false)
 	a.modeChecked = time.Time{}
 	a.flying, a.following, a.followAfter = false, "", ""
 	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false

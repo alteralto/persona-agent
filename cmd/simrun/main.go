@@ -149,7 +149,8 @@ func main() {
 		if e.Kind == "say" {
 			said = append(said, e.Text)
 		}
-		if e.Kind == "tool" && !strings.HasPrefix(e.Text, "creativeGive") && !strings.HasPrefix(e.Text, "tidy") {
+		if e.Kind == "tool" && !strings.HasPrefix(e.Text, "creativeGive") && !strings.HasPrefix(e.Text, "tidy") &&
+			!strings.HasPrefix(e.Text, "setFavorite") {
 			continue
 		}
 		fmt.Fprintf(sink, "%6.1fs %-4s %s\n", e.At.Seconds(), e.Kind, e.Text)

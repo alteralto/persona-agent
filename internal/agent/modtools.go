@@ -216,6 +216,72 @@ func (a *Agent) creativeGive(ctx context.Context, item string, count int) bool {
 	return r.OK
 }
 
+// favoriteItem is his lucky stone. Rockets put away after a landing used to end up on the
+// obsidian he had picked up near home, and it looked like a hobbit keeping a piece of home in his
+// hand; now he holds it on purpose (the fork's setFavoriteItem).
+const favoriteItem = "obsidian"
+
+// favoriteEvery: how often the mod is told the favourite again (a restarted game forgets it) and,
+// when he is idle, the stone goes back into his hand.
+const favoriteEvery = time.Minute
+
+// favoriteSayGap: he mentions the stone of his own at most this often; it is a quirk, not a topic.
+const favoriteSayGap = 10 * time.Minute
+
+const (
+	favoriteNote = "О тебе: ты носишь любимый камешек — кусочек обсидиана от родной норы, на счастье, " +
+		"и держишь его в руке, когда стоишь на земле. Вспоминай о нём редко и только к слову."
+	favoriteIdleTopic   = "погладь свой любимый камешек, кусочек обсидиана от родной норы, и скажи, чем он тебе дорог"
+	favoriteMingleTopic = "покажи ему свой любимый камешек — обсидиан от родной норы, он у тебя в руке — и похвастайся им"
+)
+
+// keepFavorite sets the lucky stone in the mod (fork only) and, between activities, takes it in
+// hand; after a landing the mod itself swaps the rockets for it. Creative takes one from the
+// creative tab first; survival only holds one he really carries.
+func (a *Agent) keepFavorite(ctx context.Context) {
+	if !a.fork || a.noFavorite || a.flying || !a.modeKnown || time.Since(a.favoriteAt) < favoriteEvery {
+		return
+	}
+	a.favoriteAt = time.Now()
+	if a.creative && !a.favoriteGiven {
+		a.tidyInventory(ctx) // a full inventory refuses the creative tab
+		a.favoriteGiven = a.creativeGive(ctx, favoriteItem, 1)
+	}
+	// Idle: not walking, following, leading or hovering anywhere. The mod also refuses in a flight,
+	// a salute or a fight, so the rockets and the sword keep their turn.
+	idle := a.activity == nil && a.trip == nil && a.outing == nil && a.following == "" && !a.leading &&
+		!a.hovering && !a.swimming
+	text, err := a.mc.Call(ctx, "setFavoriteItem", map[string]any{"item": favoriteItem, "hold": idle})
+	if err != nil {
+		if unknownTool(err) {
+			a.noFavorite = true // an older fork jar
+		} else {
+			a.log.Warn("favorite item", "err", err)
+		}
+		return
+	}
+	var r struct {
+		OK      bool   `json:"ok"`
+		Carried int    `json:"carried"`
+		Held    bool   `json:"held"`
+		Reason  string `json:"reason"`
+	}
+	_ = json.Unmarshal([]byte(text), &r)
+	on := r.OK && r.Carried > 0
+	if a.favorite.Swap(on) != on {
+		a.log.Info("favorite stone", "carried", r.Carried, "held", r.Held, "reason", r.Reason)
+	}
+}
+
+// favoriteTopic: now and then, when he has the stone, the topic of a line of his own is the stone.
+func (a *Agent) favoriteTopic(topic string) string {
+	if !a.favorite.Load() || time.Since(a.favoriteSaid) < favoriteSayGap || rand.IntN(5) != 0 {
+		return ""
+	}
+	a.favoriteSaid = time.Now()
+	return topic
+}
+
 // startFlight sends the bot flying to (x,z) on an elytra. In creative it first takes an elytra
 // and fireworks from the creative inventory (once per run). Returns false when flight is not
 // possible, and the caller walks instead.

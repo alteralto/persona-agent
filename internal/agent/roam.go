@@ -263,6 +263,7 @@ func (a *Agent) roam(ctx context.Context) {
 	if !a.protected && a.cfg.ProtectRadius > 0 {
 		a.protectBuilds(ctx)
 	}
+	a.keepFavorite(ctx)
 	// Stepped out from under the trees: take off again for the same target.
 	if a.retryFlight != nil && time.Since(a.retrySince) > 40*time.Second {
 		a.retryFlight = nil // never got out from under it: give up, it holds back everything else

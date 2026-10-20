@@ -378,6 +378,9 @@ func (a *Agent) mingle(ctx context.Context) bool {
 	}
 	a.lastTopicMingle = i
 	topic := mingleTopics[i]
+	if t := a.favoriteTopic(favoriteMingleTopic); t != "" {
+		topic = t
+	}
 	a.log.Info("mingle: talks", "player", near.name, "topic", topic)
 	a.lastSpoke.Store(time.Now().UnixNano())
 	a.enqueue(replyJob{

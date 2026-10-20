@@ -71,6 +71,7 @@ type World struct {
 	swimTo    [2]float64
 	free      int
 	rockets   int
+	items     map[string]int // what creativeGive handed out, by item id
 
 	flyPhase  string // "idle", "takeoff", "flying", "done", "failed"
 	flyTarget [2]float64
@@ -98,7 +99,7 @@ func New(o Options) *World {
 	}
 	now := time.Now()
 	return &World{opt: o, start: now, last: now, y: 70, players: map[string]*[2]float64{}, pvel: map[string][2]float64{},
-		free: o.FreeSlots, flyPhase: "idle"}
+		free: o.FreeSlots, flyPhase: "idle", items: map[string]int{}}
 }
 
 // --- scripting -------------------------------------------------------------------------------
@@ -411,7 +412,8 @@ func (w *World) Handler() http.Handler {
 
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
 	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true, "flyRoute": true,
-	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true, "dropItem": true}
+	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true, "dropItem": true,
+	"setFavoriteItem": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
@@ -515,10 +517,26 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			return map[string]any{"ok": false, "given": 0, "reason": "inventory full"}, false
 		}
 		w.free--
+		w.items[item] += intArg(args, "count", 1)
 		if item == "elytra" {
 			w.opt.Elytra = true
 		}
 		return map[string]any{"ok": true, "given": intArg(args, "count", 1)}, false
+	case "setFavoriteItem":
+		item, _ := args["item"].(string)
+		hold, _ := args["hold"].(bool)
+		n := w.items[item]
+		out := map[string]any{"ok": true, "item": "minecraft:" + item, "carried": n, "held": false}
+		switch {
+		case !hold:
+		case n == 0:
+			out["reason"] = "not carried"
+		case w.flyPhase == "takeoff" || w.flyPhase == "flying":
+			out["reason"] = "flying"
+		default:
+			out["held"] = true
+		}
+		return out, false
 	case "tidyInventory":
 		keep := intArg(args, "keepFree", 4)
 		freed := 0
