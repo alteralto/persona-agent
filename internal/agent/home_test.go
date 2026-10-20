@@ -56,6 +56,22 @@ func TestSimHoversOutOfPit(t *testing.T) {
 	r.waitFor("out of the pit, next to Alex", 5*time.Second, func() bool { return r.w.DistanceTo("Alex") < 4 })
 }
 
+// Asked to fly from a spot the elytra cannot leave (letters hanging under a platform): creative
+// flight there at once, not a walk that goes nowhere till the stuck check picks it up.
+func TestSimFlightFromUnderRoofHovers(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true}, nil)
+	r.w.AddPit(0, 0, 2)
+	r.w.AddPlayer("Alex", 300, 40)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("take-off tried", 3*time.Second, func() bool { return r.w.Has("fly", "300 40") })
+	r.waitFor("creative flight instead", 3*time.Second, func() bool { return r.w.Has("tool", "hoverTo") })
+	if !strings.Contains(r.log.String(), "no open sky near, hovering there") {
+		t.Fatal("hoverTo came from somewhere else, not the failed take-off")
+	}
+	r.waitFor("next to Alex", 10*time.Second, func() bool { return r.w.DistanceTo("Alex") < 4 })
+}
+
 // A riddle about a place it knows: the first player to get there is congratulated and gets a
 // present by @give.
 func TestSimRiddleWinnerGetsPresent(t *testing.T) {

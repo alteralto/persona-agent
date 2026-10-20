@@ -264,7 +264,7 @@ func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) boo
 	} else if o.tricks > 0 {
 		a.trackStyle = styleTricks
 	}
-	a.flyX, a.flyZ = x, z
+	a.flyX, a.flyZ, a.flyPoint = x, z, true
 	a.log.Info("flight: taking off", "x", x, "z", z, "low", o.low, "tricks", o.tricks)
 	return true
 }
@@ -281,7 +281,7 @@ func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool
 	}
 	last := pts[len(pts)-1]
 	a.trackStyle = styleRoute
-	a.flyX, a.flyZ = last[0], last[1]
+	a.flyX, a.flyZ, a.flyPoint = last[0], last[1], true
 	a.log.Info("flight: route", "points", strings.Join(parts, ";"))
 	return true
 }
@@ -351,6 +351,7 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 		return false
 	}
 	a.flying, a.flightStarted = true, time.Now()
+	a.flyPoint = false // beside a player; startFlightOpts and startRoute set it for a point
 	a.track = nil
 	a.mood("scared", 30) // he is afraid of heights
 	return true
@@ -690,6 +691,13 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 			if a.flyOut && st.Reason != "in water" && a.startHoverTo(ctx, a.flyX, a.flyZ) {
 				a.flyOut = false
 				a.log.Info("stuck: elytra could not go up, hovering out", "reason", st.Reason)
+				return false
+			}
+			// Any other flight to a point from under a roof with no open sky within reach (letters
+			// hanging under a platform: every column round them drops to the ground far below, and
+			// on foot there is no way down): creative flight goes out sideways and on to the point.
+			if a.flyPoint && st.Reason == "under a roof" && a.startHoverTo(ctx, a.flyX, a.flyZ) {
+				a.log.Info("flight: no open sky near, hovering there", "x", a.flyX, "z", a.flyZ)
 				return false
 			}
 			// Under a roof, boxed in, in water: go there on foot instead (walks out of a bunker).

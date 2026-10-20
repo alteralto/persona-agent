@@ -149,6 +149,7 @@ type Agent struct {
 	lastOpts       flightOpts // the style of the last take-off asked for
 	testLegOut     bool
 	flyX, flyZ     int
+	flyPoint       bool // the flight goes to flyX, flyZ, not beside a player (modtools.go)
 	swimming       bool
 	noSwim         bool
 	wetSince       time.Time
