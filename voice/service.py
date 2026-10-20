@@ -175,7 +175,7 @@ def say_as(text: str) -> str:
     return text
 
 
-ACUTE = "́"  # combining acute accent: espeak reads it as the stress mark
+ACUTE = chr(0x301)  # combining acute accent: espeak reads it as the stress mark
 
 
 class Stress:
@@ -358,7 +358,7 @@ def main():
     p.add_argument("--agent", default="http://127.0.0.1:8092/voice")
     p.add_argument("--hotwords", default="Пыхтун")
     p.add_argument("--say", help="speak this once and exit (voice check)")
-    p.add_argument("--stress-models", default=os.path.join("models", "ruaccent"), help="RUAccent models folder")
+    p.add_argument("--stress-models", default=os.path.join(ROOT, "models", "ruaccent"), help="RUAccent models folder")
     p.add_argument("--no-stress", action="store_true", help="no RUAccent stress marks")
     p.add_argument("--bot", default=bot_nick(), help="the bot's nickname: whose game to hear through")
     args = p.parse_args()

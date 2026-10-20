@@ -654,6 +654,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 	switch st.Phase {
 	case "done", "failed", "idle":
 		a.flying = false
+		a.landedAt = time.Now()
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
@@ -674,6 +675,14 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		}
 		if st.Phase == "failed" {
 			a.flightFailedAt = time.Now()
+			// Creative, a flight to a point: creative flight is the sure way out from under a roof.
+			// The open sky the mod finds may be a column far below an edge (it accepts those in
+			// creative), which the pathfinder will not walk down to -- two retries lost.
+			if a.creative && a.flyPoint && st.Reason == "under a roof" && a.startHoverTo(ctx, a.flyX, a.flyZ) {
+				a.flyOut = false
+				a.log.Info("flight: under a roof, hovering there", "x", a.flyX, "z", a.flyZ)
+				return false
+			}
 			// Under trees or a roof with open sky close by: step out there and take off again.
 			if sx, sz, ok := parseBlockPos(st.Sky); ok && st.Reason == "under a roof" && a.roofRetries < 2 {
 				a.roofRetries++

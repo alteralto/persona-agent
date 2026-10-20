@@ -66,7 +66,7 @@ func TestSimFlightFromUnderRoofHovers(t *testing.T) {
 	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
 	r.waitFor("take-off tried", 3*time.Second, func() bool { return r.w.Has("fly", "300 40") })
 	r.waitFor("creative flight instead", 3*time.Second, func() bool { return r.w.Has("tool", "hoverTo") })
-	if !strings.Contains(r.log.String(), "no open sky near, hovering there") {
+	if !strings.Contains(r.log.String(), "under a roof, hovering there") {
 		t.Fatal("hoverTo came from somewhere else, not the failed take-off")
 	}
 	r.waitFor("next to Alex", 10*time.Second, func() bool { return r.w.DistanceTo("Alex") < 4 })
@@ -176,4 +176,75 @@ func TestSimRace(t *testing.T) {
 	r.waitFor("a rocket for the start", 2*time.Second, func() bool { return r.w.Has("salute", "") })
 	r.w.AddPlayer("Alex", 88, 2) // there
 	r.waitFor("Alex wins", 5*time.Second, func() bool { return strings.Contains(r.log.String(), "winner=Alex") })
+}
+
+// The elytra lands short of a game's place (the real pilot calls 30 blocks done): the bot walks
+// the rest, and the race starts from the finish, the treasure is dropped there, the beacon lit.
+func TestSimGamesWalkTheRestAfterLanding(t *testing.T) {
+	places := gamePlaces(t, map[string]any{"desc": "серая постройка", "x": 90, "z": 0})
+	opt := sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true, LandOff: 15}
+	t.Run("race", func(t *testing.T) {
+		r := startSim(t, opt, places)
+		r.w.AddPlayer("Alex", 5, 0)
+		r.ready()
+		r.w.Say("Alex", "Пыхтун, давай гонку!")
+		r.waitFor("start from the finish", 10*time.Second, func() bool {
+			return strings.Contains(r.log.String(), `msg="race: start" at_finish=true`)
+		})
+	})
+	t.Run("treasure", func(t *testing.T) {
+		r := startSim(t, opt, places)
+		r.w.AddPlayer("Alex", 5, 0)
+		r.ready()
+		r.w.Say("Alex", "Пыхтун, давай поиграем в клад!")
+		r.waitFor("dropped at the place", 10*time.Second, func() bool { return r.w.Has("tool", "dropItem") })
+		if x, _ := r.w.Bot(); x < 82 {
+			t.Fatalf("dropped at x=%.0f, not at the place (90)", x)
+		}
+	})
+	t.Run("beacon", func(t *testing.T) {
+		defer agent.ShortGames(2*time.Second, time.Minute, time.Minute, time.Minute, time.Minute)()
+		r := startSim(t, opt, places)
+		r.w.AddPlayer("Alex", 5, 0)
+		r.ready()
+		r.w.Say("Alex", "Пыхтун, загадай загадку!")
+		r.waitFor("rocket over the place", 12*time.Second, func() bool { return strings.Contains(r.log.String(), "beacon: lit") })
+	})
+}
+
+// Survival carries no presents to drop: "клад" there is the plain riddle, with no talk of a
+// treasure that is not there.
+func TestSimTreasureInSurvivalIsARiddle(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) {
+		c.Creative = false
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 10})(c)
+	})
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, давай поиграем в клад!")
+	r.waitFor("a game", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	if !strings.Contains(r.log.String(), "kind=riddle") || r.w.Has("tool", "dropItem") {
+		t.Fatal("a treasure in survival")
+	}
+}
+
+// A searcher pacing about a band's edge hears one call, not "warmer", "colder", "warmer".
+func TestSimHeatSlackAtTheEdge(t *testing.T) {
+	defer agent.ShortGames(time.Minute, time.Minute, 0, time.Minute, time.Minute)()
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10},
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 0}))
+	r.w.AddPlayer("Alex", 5, 0) // 55 off: cool
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, загадай загадку!")
+	r.waitFor("riddle asked", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	time.Sleep(time.Second)
+	for i := 0; i < 6; i++ { // 34 and 36 blocks off, back and forth, round the 35 edge
+		r.w.AddPlayer("Alex", []float64{26, 24}[i%2], 0)
+		time.Sleep(300 * time.Millisecond)
+	}
+	if n := strings.Count(r.log.String(), `msg="riddle: heat"`); n > 0 {
+		t.Fatalf("%d calls for pacing at the edge", n)
+	}
+	r.w.AddPlayer("Alex", 30, 0) // 30 off: well inside warm
+	r.waitFor("warmer", 3*time.Second, func() bool { return strings.Contains(r.log.String(), `msg="riddle: heat"`) })
 }

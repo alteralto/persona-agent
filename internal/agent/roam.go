@@ -114,6 +114,8 @@ func (a *Agent) walkTarget() (int, int, bool) {
 		return x, z, true
 	case a.leading && a.places.Home != nil:
 		return explore.Block(a.places.Home.X), explore.Block(a.places.Home.Z), true
+	case a.gameGoal != nil: // the elytra lands within 30 blocks; a game needs it at the spot
+		return a.gameGoal[0], a.gameGoal[1], true
 	}
 	return 0, 0, false
 }

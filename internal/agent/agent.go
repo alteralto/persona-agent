@@ -141,6 +141,8 @@ type Agent struct {
 	roofRetries    int
 	game           *game     // a riddle or a race under way (games.go)
 	beacon         *beacon   // a rocket due over an unsolved riddle's place (games.go)
+	gameGoal       *[2]int   // where a game sent it: walked to after landing (games.go)
+	landedAt       time.Time // the end of the last flight
 	lastGame       time.Time // when the last one started
 	gameRecent     []string  // places of the last games, not played again soon
 	flyOut         bool      // the flight under way is a way out of a place it was stuck in (roam.go)
@@ -796,6 +798,7 @@ func (a *Agent) resetModState() {
 	a.modeChecked = time.Time{}
 	a.flying, a.following, a.followAfter = false, "", ""
 	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
+	a.game, a.beacon, a.gameGoal = nil, nil, nil // a game's places belong to the world it was in
 }
 
 // lingerFor keeps the bot in place for at least d; a shorter wait never cuts a longer one.

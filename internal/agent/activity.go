@@ -39,9 +39,10 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	if time.Since(a.lastRequest) < 30*time.Second {
 		return false
 	}
-	// Judging a riddle: it stays where it set it ("на юго-востоке от меня" holds); talk only.
+	// A game on: it stays where the game needs it, and keeps quiet besides the game's own lines --
+	// small talk queued now could push the riddle itself out of the one-place reply queue.
 	if a.judging() {
-		return a.mingle(ctx)
+		return false
 	}
 	// Staying a while next to people (a visit, a place, a sign): not just standing there.
 	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Now().Before(a.lingerUntil) {

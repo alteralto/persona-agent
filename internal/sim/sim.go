@@ -25,6 +25,9 @@ type Options struct {
 	Elytra    bool
 	// GamemodeWorks: "/gamemode creative" in chat switches the bot to creative (an operator).
 	GamemodeWorks bool
+	// LandOff: flyTo lands this many blocks short of the target, as the real pilot may (it calls a
+	// touch-down within 30 blocks done and leaves the rest to a walk).
+	LandOff float64
 }
 
 // Event is one thing the agent did to the world, for timelines and test assertions.
@@ -556,10 +559,15 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			return map[string]any{"phase": "failed", "reason": "no elytra"}, false
 		}
 		w.goal, w.follow = nil, ""
-		w.flyTarget = [2]float64{float64(intArg(args, "x", 0)), float64(intArg(args, "z", 0))}
+		tx, tz := float64(intArg(args, "x", 0)), float64(intArg(args, "z", 0))
+		w.flyTarget = [2]float64{tx, tz}
+		// The real pilot calls a touch-down within 30 blocks done: land short of the target.
+		if d := math.Hypot(tx-w.x, tz-w.z); w.opt.LandOff > 0 && d > w.opt.LandOff {
+			w.flyTarget = [2]float64{tx - (tx-w.x)/d*w.opt.LandOff, tz - (tz-w.z)/d*w.opt.LandOff}
+		}
 		w.flyPhase, w.flyReason, w.flyAt = "takeoff", "", time.Now()
 		w.flown++
-		w.logLocked("fly", fmt.Sprintf("%d %d", int(w.flyTarget[0]), int(w.flyTarget[1])))
+		w.logLocked("fly", fmt.Sprintf("%d %d", int(tx), int(tz)))
 		return map[string]any{"phase": "equip"}, false
 	case "flyRoute":
 		pts := strings.Split(fmt.Sprint(args["points"]), ";")

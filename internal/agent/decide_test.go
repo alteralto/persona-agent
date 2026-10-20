@@ -143,6 +143,12 @@ func TestKeywordRules(t *testing.T) {
 			t.Errorf("%q should be left to Laya, got %s", text, d.Action)
 		}
 	}
+	// "клад" inside other words is not the game.
+	for _, text := range []string{"Пыхтун, лети к складу", "не клади блоки сюда", "там кладбище", "отнеси на склад", "мой вклад"} {
+		if d, _ := applyRules(Decision{Action: ActWait}, text); d.Action == ActTreasure {
+			t.Errorf("%q started the treasure game", text)
+		}
+	}
 }
 
 func TestOverlap(t *testing.T) {
