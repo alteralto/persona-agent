@@ -12,6 +12,7 @@ the loudness of the voice being played (lip sync) and the mood the agent POSTs t
 """
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -178,6 +179,15 @@ def say_as(text: str) -> str:
 ACUTE = chr(0x301)  # combining acute accent: espeak reads it as the stress mark
 
 
+FIRST_SENTENCE = re.compile(r"(.+?[.!?…]+)\s+(\S.*)", re.S)
+
+
+def split_first_sentence(text: str) -> "tuple[str, str]":
+    """The first sentence and the rest ("" when there is one sentence only)."""
+    m = FIRST_SENTENCE.fullmatch(text.strip())
+    return (m.group(1), m.group(2)) if m else (text, "")
+
+
 class Stress:
     """Stress marks from RUAccent: Piper's espeak dictionary misses words ("П+ыхтун", "м+ука" for
     flour) and homographs. RUAccent writes "+" before the stressed vowel, which Piper would read
@@ -198,6 +208,7 @@ class Stress:
             from ruaccent import RUAccent
             accent = RUAccent()
             accent.load(omograph_model_size="turbo3.1", use_dictionary=True, workdir=workdir)
+            accent.process_all("Привет, народ.")  # the first call is slow (0.5 s live): not on a line
             self.accent = accent
             log.info("stress marks on (RUAccent, %s)", workdir)
         except Exception as err:  # no package, no models: speak as before
@@ -221,6 +232,7 @@ class Speaker:
     def __init__(self, voice: PiperVoice, device_name: str, stress: "Stress | None" = None):
         self.voice = voice
         self.stress = stress
+        self.marker = concurrent.futures.ThreadPoolExecutor(max_workers=1)  # marks the rest of a line
         self.device_name = device_name
         self.device = find_output(device_name)
         self.queue: "queue.Queue[str]" = queue.Queue()
@@ -267,24 +279,31 @@ class Speaker:
         rate = self.voice.config.sample_rate
         start = time.perf_counter()
         first_ms, seconds = None, 0.0
-        marked = self.stress.mark(text) if self.stress else text
+        # Stress marks took 0.25-0.5 s a line in a game on the same CPU: the first sentence is
+        # marked alone and spoken, the rest is marked in the background while it plays.
+        head, tail = split_first_sentence(text)
+        marked = self.stress.mark(head) if self.stress else head
         stress_ms = (time.perf_counter() - start) * 1000
+        later = self.marker.submit(self.stress.mark, tail) if self.stress and tail else None
         # Piper yields one chunk per sentence: play each as soon as it is ready, so the first
         # sound does not wait for the whole line.
         with sd.OutputStream(samplerate=rate, channels=1, dtype="int16", device=self.device) as out:
-            for chunk in self.voice.synthesize(marked):
-                if first_ms is None:
-                    first_ms = (time.perf_counter() - start) * 1000
-                audio = chunk.audio_int16_array
-                seconds += len(audio) / rate
-                # In 40 ms slices: each write blocks about as long as it plays, so the level
-                # set before it follows the voice the stream hears.
-                step = rate // 25
-                for i in range(0, len(audio), step):
-                    piece = audio[i:i + step]
-                    rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
-                    self.level = min(1.0, rms / 5000.0)
-                    out.write(piece.reshape(-1, 1))
+            for part in (marked, later.result() if later else tail):
+                if not part:
+                    continue
+                for chunk in self.voice.synthesize(part):
+                    if first_ms is None:
+                        first_ms = (time.perf_counter() - start) * 1000
+                    audio = chunk.audio_int16_array
+                    seconds += len(audio) / rate
+                    # In 40 ms slices: each write blocks about as long as it plays, so the level
+                    # set before it follows the voice the stream hears.
+                    step = rate // 25
+                    for i in range(0, len(audio), step):
+                        piece = audio[i:i + step]
+                        rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
+                        self.level = min(1.0, rms / 5000.0)
+                        out.write(piece.reshape(-1, 1))
         log.info("speak (first sound %d ms, stress %d ms, %.1fs audio): %s", first_ms or 0, stress_ms, seconds, text)
 
 
