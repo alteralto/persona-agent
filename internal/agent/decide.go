@@ -27,6 +27,7 @@ const (
 	ActFlyRoute  = "flyroute"  // rule-only: a tour round places without landing
 	ActRiddle    = "riddle"    // rule-only: a riddle about a place, a present to the first there
 	ActRace      = "race"      // rule-only: a race to a place
+	ActTreasure  = "treasure"  // rule-only: it hides a real item at a place and sets a riddle about it
 )
 
 const (
@@ -182,6 +183,7 @@ var (
 	flyLowRule    = regexp.MustCompile(`(?i)(бреющ|(пролети|лети|летай|полетай|полетели)\s+(пониже|низко|над\s+самой\s+землёй))`)
 	saluteRule    = regexp.MustCompile(`(?i)(салют|(запусти|устрой|покажи|пусти)\s+фейерверк|фейерверк(и|ов)?\s+(запусти|покажи|давай))`)
 	riddleRule    = regexp.MustCompile(`(?i)(загада(й|ешь)|загадк|квест|поиграем|сыграем|давай\s+(игр|поигра|сыгра))`)
+	treasureRule  = regexp.MustCompile(`(?i)(клад|сокровищ)`)
 	raceRule      = regexp.MustCompile(`(?i)(гонк[уаи]|наперегонки|кто\s+(первый|первым|быстрее)\s+(долетит|добежит|доберётся|доберется))`)
 	supplyRule    = regexp.MustCompile(`(?i)(принеси|достань|подкинь|дай|нужн[ыо]).{0,40}(ракет|бумаг|порох|фейерверк)`)
 	defendRule    = regexp.MustCompile(`(?i)(крипер|зомби|скелет|паук|напал[иа]|мобы? рядом)`)
@@ -199,7 +201,8 @@ func applyRules(d Decision, text string) (Decision, bool) {
 		action string
 	}{
 		{supplyRule, ActSupply},
-		{raceRule, ActRace}, // "гонка на элитрах" is a race, not a flight
+		{raceRule, ActRace},         // "гонка на элитрах" is a race, not a flight
+		{treasureRule, ActTreasure}, // "давай поиграем в клад" is the treasure, not any game
 		{riddleRule, ActRiddle},
 		{saluteRule, ActSalute},
 		{flyToRule, ActFlyTo},

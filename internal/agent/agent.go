@@ -445,7 +445,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		a.activity = nil // a request beats the bot's own plans
 	}
 	a.act(ctx, d.Action, msg.Nick)
-	if d.Action == ActRiddle || d.Action == ActRace {
+	if d.Action == ActRiddle || d.Action == ActRace || d.Action == ActTreasure {
 		a.remember(msg) // the game's announcement (or why there is none) is the reply
 		return
 	}
@@ -622,16 +622,13 @@ func (a *Agent) act(ctx context.Context, action, nick string) {
 	case ActSalute:
 		a.salute(ctx, 4+rand.IntN(2)) // asked for: a short show
 		return
-	case ActRiddle, ActRace:
+	case ActRiddle, ActRace, ActTreasure:
 		if a.game != nil {
 			a.enqueue(replyJob{prompt: fmt.Sprintf("Игрок %s зовёт поиграть, а у вас уже идёт игра. Напомни ему "+
 				"об этом одной фразой до 100 символов.", spokenName(nick)), history: slices.Clone(a.history), at: time.Now()})
 			return
 		}
-		kind := gameRiddle
-		if action == ActRace {
-			kind = gameRace
-		}
+		kind := map[string]string{ActRiddle: gameRiddle, ActRace: gameRace, ActTreasure: gameTreasure}[action]
 		a.startGame(ctx, kind, nick)
 		return
 	case ActFly, ActFlyLow, ActFlyTricks, ActFlyRoute:

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -19,8 +20,9 @@ import (
 // handed over with @give, the signals are its fireworks.
 
 const (
-	gameRiddle = "riddle"
-	gameRace   = "race"
+	gameRiddle   = "riddle"
+	gameRace     = "race"
+	gameTreasure = "treasure" // a riddle about where it has left a real present on the ground
 
 	gameWinR  = 6.0              // blocks from the place that count as there
 	gameEvery = 10 * time.Minute // its own idea for a game at most this often
@@ -57,7 +59,13 @@ type game struct {
 
 	heat     map[string]int  // riddle: how warm each searcher was at the last look
 	lastHeat time.Time       // riddle: the last "warmer/colder"
-	ahead    map[string]bool // race: at the finish already when it started -- watching, not racing
+	ahead    map[string]bool // at the place already when the race or the search started: not in it
+
+	phase   string    // treasure: "hide" (off to the place), "back" (to the players), "" (the search)
+	origin  [2]int    // treasure: where the players wait
+	backAt  time.Time // treasure: when it set off back
+	gift    int       // treasure: which present it hides
+	dropped bool      // treasure: the present lies there (else it is handed over by @give)
 }
 
 // beacon: after a riddle nobody solved, it flies to the place and fires a rocket over it.
@@ -103,6 +111,9 @@ func (a *Agent) startGame(ctx context.Context, kind, asker string) bool {
 	if a.game != nil || !a.havePos || a.places == nil {
 		return false
 	}
+	if kind == gameTreasure && !a.fork {
+		kind = gameRiddle // nothing to drop with: the plain riddle
+	}
 	var with []string
 	for _, p := range a.visiblePlayers(ctx) {
 		if p.dist <= visitNear {
@@ -136,12 +147,18 @@ func (a *Agent) startGame(ctx context.Context, kind, asker string) bool {
 	who := strings.Join(spokenNames(with), ", ")
 	a.log.Info("game: start", "kind", kind, "place", pl.Desc, "x", pl.X, "z", pl.Z, "dist", d, "with", who)
 	var prompt string
-	if kind == gameRiddle {
-		prompt = fmt.Sprintf("Ты затеял игру для игроков рядом (%s): загадку-место. Загадай им место так, чтобы его "+
-			"можно было найти, но не сразу. Место: %s. Оно примерно в %d блоках от тебя, на %s. Не называй координаты "+
-			"и не повторяй описание дословно. Скажи, что первый, кто доберётся туда, получит от тебя подарок, а ты "+
-			"будешь подсказывать «горячо-холодно». Одна-две фразы до 200 символов, в характере.", who, pl.Desc, d, dir)
-	} else {
+	switch kind {
+	case gameRiddle:
+		prompt = riddlePrompt(a.game, who, d, dir)
+	case gameTreasure:
+		g := a.game
+		g.phase, g.gift = "hide", rand.IntN(len(presents))
+		g.origin = [2]int{explore.Block(a.pos.X), explore.Block(a.pos.Z)}
+		prompt = fmt.Sprintf("Ты затеял игру «клад» для игроков рядом (%s): сейчас улетишь прятать настоящий клад и "+
+			"вернёшься загадать, где он. Попроси не подглядывать и ждать тебя тут. Одна фраза до 140 символов, в "+
+			"характере.", who)
+		a.goTo(ctx, pl.X, pl.Z, "treasure: to the place")
+	default:
 		// The judge, not a racer: on an elytra it won every race.
 		prompt = fmt.Sprintf("Ты объявляешь гонку для игроков рядом (%s): кто первым доберётся до финиша — %s, "+
 			"на %s, примерно %d блоков. Ты будешь судьёй: сейчас улетишь к финишу и оттуда дашь старт ракетой и "+
@@ -150,6 +167,73 @@ func (a *Agent) startGame(ctx context.Context, kind, asker string) bool {
 	}
 	a.enqueue(replyJob{prompt: prompt, history: slices.Clone(a.history), at: time.Now()})
 	return true
+}
+
+// riddlePrompt asks for the riddle about the game's place: the plain one, or where the treasure is.
+func riddlePrompt(g *game, who string, d int, dir string) string {
+	what, prize := "место", "первый, кто доберётся туда, получит от тебя подарок"
+	if g.kind == gameTreasure {
+		what = "место, где ты спрятал клад — " + presents[g.gift].say + ","
+		prize = "клад достанется тому, кто первым его найдёт"
+	}
+	return fmt.Sprintf("Ты затеял игру для игроков рядом (%s): загадку-место. Загадай им %s так, чтобы его можно "+
+		"было найти, но не сразу. Место: %s. Оно примерно в %d блоках от тебя, на %s. Не называй координаты и не "+
+		"повторяй описание дословно. Скажи, что %s, а ты будешь подсказывать «горячо-холодно». Одна-две фразы до "+
+		"200 символов, в характере.", who, what, g.place.Desc, d, dir, prize)
+}
+
+// hideTreasure: off to the place, the present dropped there, back to the players, and then the
+// riddle as usual -- the treasure is the prize. A flight that does not get there in time, or a
+// drop that fails (an older mod without dropItem), leaves the present to be handed over by @give.
+func (a *Agent) hideTreasure(ctx context.Context, g *game, pos explore.Pos) {
+	if a.flying || a.hovering {
+		return
+	}
+	switch g.phase {
+	case "hide":
+		at := math.Hypot(pos.X-float64(g.place.X), pos.Z-float64(g.place.Z)) <= judgeNear
+		if !at && time.Since(g.started) < raceSetup {
+			return
+		}
+		if at {
+			g.dropped = a.dropTreasure(ctx, g)
+		}
+		g.phase, g.backAt = "back", time.Now()
+		a.goTo(ctx, g.origin[0], g.origin[1], "treasure: back")
+	case "back":
+		if math.Hypot(pos.X-float64(g.origin[0]), pos.Z-float64(g.origin[1])) > judgeNear &&
+			time.Since(g.backAt) < raceSetup {
+			return
+		}
+		g.phase, g.started, g.ahead = "", time.Now(), map[string]bool{}
+		px, pz := float64(g.place.X), float64(g.place.Z)
+		for _, p := range a.visiblePlayers(ctx) {
+			if math.Hypot(p.x-px, p.z-pz) < raceAhead {
+				g.ahead[p.name] = true // followed it there and watched: no fair find
+			}
+		}
+		d, dir := a.placeDistDir(g.place)
+		a.log.Info("treasure: search on", "dropped", g.dropped, "place", g.place.Desc, "not_searching", len(g.ahead))
+		a.enqueue(replyJob{prompt: riddlePrompt(g, strings.Join(spokenNames(g.with), ", "), d, dir),
+			history: slices.Clone(a.history), at: time.Now()})
+	}
+}
+
+// dropTreasure leaves the game's present on the ground at the bot's feet (fork's dropItem).
+func (a *Agent) dropTreasure(ctx context.Context, g *game) bool {
+	gift := presents[g.gift]
+	text, err := a.mc.Call(ctx, "dropItem", map[string]any{"item": gift.item, "count": gift.count})
+	if err != nil {
+		a.log.Warn("treasure: drop", "err", err)
+		return false
+	}
+	var st struct {
+		OK      bool `json:"ok"`
+		Dropped int  `json:"dropped"`
+	}
+	ok := json.Unmarshal([]byte(text), &st) == nil && st.OK && st.Dropped > 0
+	a.log.Info("treasure: hidden", "ok", ok, "item", gift.item, "result", text)
+	return ok
 }
 
 // goTo flies to x, z, or walks there when it cannot fly.
@@ -168,6 +252,10 @@ func (a *Agent) checkGame(ctx context.Context, pos explore.Pos) {
 	g := a.game
 	if g == nil {
 		return
+	}
+	if g.kind == gameTreasure && g.phase != "" {
+		a.hideTreasure(ctx, g, pos)
+		return // hidden first: nobody wins before the riddle
 	}
 	px, pz := float64(g.place.X), float64(g.place.Z)
 	if g.kind == gameRace && !g.running {
@@ -192,14 +280,18 @@ func (a *Agent) checkGame(ctx context.Context, pos explore.Pos) {
 		a.gameOver(ctx, g)
 		return
 	}
-	if g.kind != gameRiddle {
+	if g.kind == gameRace {
 		return
 	}
 	if !g.hinted && time.Since(g.started) > riddleHint {
 		g.hinted = true
 		d, dir := a.placeDistDir(g.place)
-		a.enqueue(replyJob{prompt: fmt.Sprintf("Твою загадку-место пока никто не разгадал. Место: %s, на %s от тебя, "+
-			"около %d блоков. Дай вторую подсказку, понятнее первой, одной фразой до 140 символов.", g.place.Desc, dir, d),
+		what := "Твою загадку-место пока никто не разгадал"
+		if g.kind == gameTreasure {
+			what = "Твой клад пока никто не нашёл"
+		}
+		a.enqueue(replyJob{prompt: fmt.Sprintf("%s. Место: %s, на %s от тебя, около %d блоков. Дай вторую "+
+			"подсказку, понятнее первой, одной фразой до 140 символов.", what, g.place.Desc, dir, d),
 			history: slices.Clone(a.history), at: time.Now()})
 		return
 	}
@@ -236,12 +328,15 @@ func (a *Agent) gameOver(ctx context.Context, g *game) {
 	d, dir := a.placeDistDir(g.place)
 	a.beacon = &beacon{x: g.place.X, z: g.place.Z, desc: g.place.Desc, until: time.Now().Add(beaconWait)}
 	a.goTo(ctx, g.place.X, g.place.Z, "beacon: to the place")
+	what := "место, которое ты загадал"
+	if g.kind == gameTreasure && g.dropped {
+		what = "твой клад (" + presents[g.gift].say + ", он так и лежит там)"
+	}
 	// Said plainly what the place was: "раскрой ответ" alone once got a new riddle with the
 	// answer "нос".
-	a.enqueue(replyJob{prompt: fmt.Sprintf("Игра закончилась: никто не нашёл место, которое ты загадал. Скажи "+
-		"прямо, что это было: %s — на %s от тебя, около %d блоков, и что сейчас слетаешь туда и запустишь над ним "+
-		"ракету, чтобы все увидели. Не загадывай новых загадок. Подшути по-доброму, одной-двумя фразами до 160 "+
-		"символов.", g.place.Desc, dir, d),
+	a.enqueue(replyJob{prompt: fmt.Sprintf("Игра закончилась: никто не нашёл %s. Скажи прямо, где это было: %s — "+
+		"на %s от тебя, около %d блоков, и что сейчас слетаешь туда и запустишь над ним ракету, чтобы все увидели. "+
+		"Не загадывай новых загадок. Подшути по-доброму, одной-двумя фразами до 160 символов.", what, g.place.Desc, dir, d),
 		history: slices.Clone(a.history), at: time.Now()})
 }
 
@@ -337,7 +432,20 @@ func (a *Agent) endGame(ctx context.Context, winner string) {
 	a.game = nil
 	a.log.Info("game: won", "kind", g.kind, "winner", winner, "place", g.place.Desc,
 		"seconds", int(time.Since(g.started).Seconds()))
+	if g.kind == gameTreasure && g.dropped {
+		// The treasure is the present, and it is lying at their feet.
+		a.mood("happy", 8)
+		a.rememberWin(winner, "первым нашёл клад", g.place.Desc, presents[g.gift].say)
+		a.enqueue(replyJob{prompt: fmt.Sprintf("Игрок %s первым нашёл твой клад (%s)! Поздравь его и скажи, что клад — "+
+			"%s — теперь его, пусть подбирает. Одной-двумя фразами до 160 символов, в характере.",
+			spokenName(winner), g.place.Desc, presents[g.gift].say),
+			history: slices.Clone(a.history), at: time.Now()})
+		return
+	}
 	gift := presents[rand.IntN(len(presents))]
+	if g.kind == gameTreasure {
+		gift = presents[g.gift] // the one it meant to hide
+	}
 	gave := a.creative && a.fork && a.creativeGive(ctx, gift.item, gift.count)
 	if gave {
 		cmd := fmt.Sprintf("@give %s %s %d", winner, gift.item, gift.count)
@@ -355,14 +463,20 @@ func (a *Agent) endGame(ctx context.Context, winner string) {
 		kind = "первым пришёл к финишу гонки"
 	}
 	a.mood("happy", 8)
-	if a.people != nil {
-		if err := a.people.Append(winner, "(в игре "+kind+": "+g.place.Desc+")", "подарил: "+what); err != nil {
-			a.log.Warn("people memory", "err", err)
-		}
-	}
+	a.rememberWin(winner, kind, g.place.Desc, what)
 	a.enqueue(replyJob{prompt: fmt.Sprintf("Игрок %s %s (%s)! Поздравь его и скажи, что несёшь ему подарок: %s. "+
 		"Одной-двумя фразами до 160 символов, в характере.", spokenName(winner), kind, g.place.Desc, what),
 		history: slices.Clone(a.history), at: time.Now()})
+}
+
+// rememberWin notes the win in what the bot remembers about the winner.
+func (a *Agent) rememberWin(winner, how, place, gift string) {
+	if a.people == nil {
+		return
+	}
+	if err := a.people.Append(winner, "(в игре "+how+": "+place+")", "подарил: "+gift); err != nil {
+		a.log.Warn("people memory", "err", err)
+	}
 }
 
 // judging: a game is under way (or its beacon is due), and where the bot stands is part of it --

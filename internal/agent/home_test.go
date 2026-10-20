@@ -134,6 +134,28 @@ func TestSimRiddleBeacon(t *testing.T) {
 	r.waitFor("rocket over it", 8*time.Second, func() bool { return strings.Contains(r.log.String(), "beacon: lit") })
 }
 
+// The treasure: it flies off to a place, drops the present there, comes back and sets the riddle;
+// the finder keeps what lies there (no @give).
+func TestSimTreasure(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true},
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 10}))
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, давай поиграем в клад!")
+	r.waitFor("off to hide it", 3*time.Second, func() bool { return r.w.Has("fly", "60 10") })
+	r.waitFor("dropped there", 8*time.Second, func() bool { return r.w.Has("tool", "dropItem") })
+	r.waitFor("back to the players", 3*time.Second, func() bool { return r.w.Has("fly", "0 0") })
+	r.waitFor("the search on", 8*time.Second, func() bool {
+		return strings.Contains(r.log.String(), `msg="treasure: search on" dropped=true`)
+	})
+	r.w.AddPlayer("Alex", 61, 12) // found it
+	r.waitFor("Alex wins", 5*time.Second, func() bool { return strings.Contains(r.log.String(), "winner=Alex") })
+	time.Sleep(200 * time.Millisecond)
+	if r.w.Has("cmd", "@give Alex") {
+		t.Fatal("handed over by @give: the treasure on the ground is the present")
+	}
+}
+
 // A race: the bot judges, not races. It flies to the finish, gives the start from there, and the
 // first player at the finish wins.
 func TestSimRace(t *testing.T) {

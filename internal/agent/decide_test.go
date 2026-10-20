@@ -130,6 +130,8 @@ func TestKeywordRules(t *testing.T) {
 		"давай поиграем":               ActRiddle,
 		"а давай гонку на элитрах!":    ActRace, // not a flight
 		"кто первый долетит до озера?": ActRace,
+		"давай поиграем в клад":        ActTreasure, // the treasure, not any game
+		"спрячь сокровище":             ActTreasure,
 	}
 	for text, want := range cases {
 		if d, ok := applyRules(Decision{Action: ActWait}, text); !ok || d.Action != want {

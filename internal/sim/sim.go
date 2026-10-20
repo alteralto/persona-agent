@@ -408,7 +408,7 @@ func (w *World) Handler() http.Handler {
 
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
 	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true, "flyRoute": true,
-	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true}
+	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true, "dropItem": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
@@ -495,6 +495,14 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			return []any{}, false
 		}
 		return out, false
+	case "dropItem":
+		item, _ := args["item"].(string)
+		n := intArg(args, "count", 1)
+		if w.opt.Mode != "creative" {
+			return map[string]any{"ok": false, "dropped": 0, "item": item, "reason": "no " + item + " in inventory"}, false
+		}
+		w.logLocked("drop", fmt.Sprintf("%s %d at %d %d", item, n, int(w.x), int(w.z)))
+		return map[string]any{"ok": true, "dropped": n, "item": "minecraft:" + item, "given": n}, false
 	case "creativeGive":
 		item, _ := args["item"].(string)
 		switch {
