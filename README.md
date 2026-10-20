@@ -104,7 +104,7 @@ switching on combat, a flight show right after "stay here", and more).
 | `cmd/simrun`, `internal/sim` | scripted scene against the simulated game |
 | `internal/agent` | decision loop, rules, critic, exploration, outings, fork tools |
 | `internal/{laya,giga,mcp,voice,chatlog,explore,memory}` | clients and building blocks |
-| `voice/service.py` | Py4J voice feed, Whisper STT, Piper TTS to the virtual cable |
+| `voice/service.py` | Py4J voice feed, Whisper STT, Piper TTS to the virtual cable, RUAccent stress marks |
 | `bench/` | hand-labelled decision bench |
 | `scripts/start-all.ps1`, `scripts/stop-all.ps1` | start/stop Laya, voice and the agent |
 | `scripts/run-agent.sh`, `scripts/nightly.sh` | agent settings; nightly tuning |
@@ -123,6 +123,10 @@ go build -o bin/pyhtun.exe ./cmd/agent
 .venv-voice/Scripts/python.exe voice/service.py   # voice: STT + TTS + Py4J
 scripts/run-agent.sh
 ```
+
+Stress marks: with `pip install ruaccent` in the voice environment, lines get stresses from
+RUAccent before Piper (its models, ~700 MB, go to `models/ruaccent` on first use; `--no-stress`
+turns it off). It adds 15–150 ms a line; the log shows it as `stress N ms`.
 
 Or without a terminal: the control panel in `launcher/` (Rust, egui) shows what is up (the game,
 the mod, Laya, the voice service, the agent), starts and stops each of them or all at once, switches

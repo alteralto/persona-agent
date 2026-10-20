@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 import urllib.request
@@ -174,11 +175,52 @@ def say_as(text: str) -> str:
     return text
 
 
+ACUTE = "́"  # combining acute accent: espeak reads it as the stress mark
+
+
+class Stress:
+    """Stress marks from RUAccent: Piper's espeak dictionary misses words ("П+ыхтун", "м+ука" for
+    flour) and homographs. RUAccent writes "+" before the stressed vowel, which Piper would read
+    out as "плюс"; espeak takes a combining acute after the vowel. About 75 ms a line on the CPU.
+    The models load in the background (about 18 s): till then, and without the package, lines go
+    unmarked."""
+
+    PLUS = re.compile(r"\+([аеёиоуыэюяАЕЁИОУЫЭЮЯ])")
+    # A function, not a template: r"\1" followed by U+0301 lost the vowel in a test.
+
+    def __init__(self, workdir: str):
+        self.accent = None
+        self.ready = threading.Event()  # set once loading is over, whether it worked or not
+        threading.Thread(target=self._load, args=(workdir,), daemon=True).start()
+
+    def _load(self, workdir: str) -> None:
+        try:
+            from ruaccent import RUAccent
+            accent = RUAccent()
+            accent.load(omograph_model_size="turbo3.1", use_dictionary=True, workdir=workdir)
+            self.accent = accent
+            log.info("stress marks on (RUAccent, %s)", workdir)
+        except Exception as err:  # no package, no models: speak as before
+            log.warning("stress marks off: %s", err)
+        finally:
+            self.ready.set()
+
+    def mark(self, text: str) -> str:
+        if self.accent is None:
+            return text
+        try:
+            return self.PLUS.sub(lambda m: m.group(1) + ACUTE, self.accent.process_all(text))
+        except Exception as err:
+            log.warning("stress marks failed (%s): %s", err, text)
+            return text
+
+
 class Speaker:
     REOPEN_TRIES = 15  # a second apart: the device may take a moment to come back
 
-    def __init__(self, voice: PiperVoice, device_name: str):
+    def __init__(self, voice: PiperVoice, device_name: str, stress: "Stress | None" = None):
         self.voice = voice
+        self.stress = stress
         self.device_name = device_name
         self.device = find_output(device_name)
         self.queue: "queue.Queue[str]" = queue.Queue()
@@ -225,10 +267,12 @@ class Speaker:
         rate = self.voice.config.sample_rate
         start = time.perf_counter()
         first_ms, seconds = None, 0.0
+        marked = self.stress.mark(text) if self.stress else text
+        stress_ms = (time.perf_counter() - start) * 1000
         # Piper yields one chunk per sentence: play each as soon as it is ready, so the first
         # sound does not wait for the whole line.
         with sd.OutputStream(samplerate=rate, channels=1, dtype="int16", device=self.device) as out:
-            for chunk in self.voice.synthesize(text):
+            for chunk in self.voice.synthesize(marked):
                 if first_ms is None:
                     first_ms = (time.perf_counter() - start) * 1000
                 audio = chunk.audio_int16_array
@@ -241,7 +285,7 @@ class Speaker:
                     rms = float(np.sqrt(np.mean(piece.astype(np.float32) ** 2))) if len(piece) else 0.0
                     self.level = min(1.0, rms / 5000.0)
                     out.write(piece.reshape(-1, 1))
-        log.info("speak (first sound %d ms, %.1fs audio): %s", first_ms or 0, seconds, text)
+        log.info("speak (first sound %d ms, stress %d ms, %.1fs audio): %s", first_ms or 0, stress_ms, seconds, text)
 
 
 AVATAR_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "avatar.html")
@@ -314,6 +358,8 @@ def main():
     p.add_argument("--agent", default="http://127.0.0.1:8092/voice")
     p.add_argument("--hotwords", default="Пыхтун")
     p.add_argument("--say", help="speak this once and exit (voice check)")
+    p.add_argument("--stress-models", default=os.path.join("models", "ruaccent"), help="RUAccent models folder")
+    p.add_argument("--no-stress", action="store_true", help="no RUAccent stress marks")
     p.add_argument("--bot", default=bot_nick(), help="the bot's nickname: whose game to hear through")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -321,10 +367,13 @@ def main():
     logging.getLogger("py4j").setLevel(logging.WARNING)
 
     try:
-        speaker = Speaker(PiperVoice.load(args.voice), args.device)
+        stress = None if args.no_stress else Stress(args.stress_models)
+        speaker = Speaker(PiperVoice.load(args.voice), args.device, stress)
     except LookupError as err:
         raise SystemExit(str(err))
     if args.say:
+        if stress:
+            stress.ready.wait(60)  # a voice check should sound the way the bot will
         speaker.say(args.say)
         time.sleep(0.5)
         while not speaker.queue.empty() or speaker.speaking.is_set():
