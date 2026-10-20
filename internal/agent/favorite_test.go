@@ -40,7 +40,12 @@ func TestSimFavoriteStoneInCreative(t *testing.T) {
 		t.Fatalf("want one obsidian from the creative tab before setFavoriteItem, got give=%d set=%d", give, set)
 	}
 	r.w.Say("Alex", "Пыхтун, привет")
-	r.waitFor("the stone in the persona note", 3*time.Second, func() bool { return r.promptHas("любимый камешек") })
+	r.waitFor("a reply", 3*time.Second, func() bool { return len(r.giga.Calls()) > 0 })
+	if r.promptHas("любимый камешек") {
+		t.Fatal("the stone on a plain hello: it opened most lines with it")
+	}
+	r.w.Say("Alex", "Пыхтун, что у тебя в руке?")
+	r.waitFor("the stone when asked", 3*time.Second, func() bool { return r.promptHas("любимый камешек") })
 }
 
 func TestSimFavoriteStoneSurvivalOnlyWhenCarried(t *testing.T) {

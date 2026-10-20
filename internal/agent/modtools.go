@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -227,6 +228,9 @@ const favoriteEvery = time.Minute
 
 // favoriteSayGap: he mentions the stone of his own at most this often; it is a quirk, not a topic.
 const favoriteSayGap = 10 * time.Minute
+
+// asksStone: a player asks about what he holds -- then the reply may know it is his lucky stone.
+var asksStone = regexp.MustCompile(`(?i)(камен|камн|камуш|камеш|обсидиан|в\s+руке|в\s+руках|держишь)`)
 
 const (
 	favoriteNote = "О тебе: ты носишь любимый камешек — кусочек обсидиана от родной норы, на счастье, " +

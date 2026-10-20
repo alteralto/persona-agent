@@ -688,7 +688,10 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			}
 			note = replyMessages(job.history, job.nick, job.text, noteKey, job.places)
 		}
-		if a.favorite.Load() {
+		// Only when asked about it: on every line the note made it open five lines in six with
+		// "Обсидиан в ладони", "вспоминай редко" notwithstanding. Its own stone lines carry the
+		// stone in their topic (favoriteTopic).
+		if a.favorite.Load() && asksStone.MatchString(job.text) {
 			note[1].Content = favoriteNote + "\n" + note[1].Content
 		}
 		// What the bot remembers about this person goes first: notes and recent exchanges.
