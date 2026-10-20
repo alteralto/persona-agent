@@ -356,6 +356,30 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 	return true
 }
 
+// takeoffSayGap: a take-off is announced at most this often. In creative half its activities are
+// flights, and a line for each came out as "Опять… держись крепче" four times in five minutes.
+const takeoffSayGap = 3 * time.Minute
+
+// announceTakeoff asks for a line about going up, unless it said one lately: then it just flies.
+func (a *Agent) announceTakeoff(prompt string, history []string) {
+	if time.Since(a.lastTakeoffSay) < takeoffSayGap {
+		a.log.Info("flight: quiet take-off")
+		return
+	}
+	a.lastTakeoffSay = time.Now()
+	a.enqueue(replyJob{prompt: prompt, history: history, takeoff: true, at: time.Now()})
+}
+
+// takeoffNote shows the model its earlier take-off lines: the general list of its last lines has
+// moved on by the next flight, and on its own the same prompt gives the same opening every time.
+func takeoffNote(said []string) string {
+	if len(said) == 0 {
+		return ""
+	}
+	return "Так ты уже говорил о своих взлётах — теперь скажи совсем иначе: другое начало, другие слова и " +
+		"мысль, не «опять» и не «держись крепче»:\n- " + strings.Join(said, "\n- ") + "\n\n"
+}
+
 // mood sets the avatar's face for a while; nothing without the voice service.
 func (a *Agent) mood(name string, seconds int) {
 	if a.speaker != nil {
@@ -505,13 +529,9 @@ func (a *Agent) joinFlyers(ctx context.Context) bool {
 	a.lastFlyTogether = time.Now()
 	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
 	a.mood("scared", 20)
-	a.enqueue(replyJob{
-		prompt: fmt.Sprintf("Игрок %s полетел, и ты сам взлетаешь следом, чтобы лететь рядом с ним. "+
-			"Скажи ему об этом одной короткой фразой до 90 символов, в характере: страшно, но весело.",
-			spokenName(p.name)),
-		history: append([]string(nil), a.history...),
-		at:      time.Now(),
-	})
+	a.announceTakeoff(fmt.Sprintf("Игрок %s полетел, и ты сам взлетаешь следом, чтобы лететь рядом с ним. "+
+		"Скажи ему об этом одной короткой фразой до 90 символов, в характере: страшно, но весело.",
+		spokenName(p.name)), append([]string(nil), a.history...))
 	return true
 }
 

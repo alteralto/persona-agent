@@ -107,6 +107,8 @@ type Agent struct {
 	outing          *outing
 	protected       bool
 	ownLines        []string // last lines the bot said; touched only by replyWorker
+	takeoffLines    []string // its last take-off announcements; touched only by replyWorker
+	lastTakeoffSay  time.Time
 	lastTopic       int
 	stillPos        explore.Pos
 	stillSince      time.Time
@@ -209,6 +211,7 @@ type replyJob struct {
 	action   string
 	places   string // known places near the bot, for "where is ..." questions
 	creative bool
+	takeoff  bool // a line about going up: told its earlier ones, remembered among them
 	at       time.Time
 }
 
@@ -684,6 +687,9 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			note[1].Content = "Твои последние реплики — не повторяй их ни словами, ни темой:\n- " +
 				strings.Join(a.ownLines, "\n- ") + "\n\n" + note[1].Content
 		}
+		if job.takeoff {
+			note[1].Content = takeoffNote(a.takeoffLines) + note[1].Content
+		}
 		if job.prompt == "" && action == ActSupply && job.creative && !a.fork {
 			note[1].Content += "\n(Ты пока не умеешь брать вещи из креатив-вкладки — поворчи, что научишься позже.)"
 		}
@@ -737,6 +743,12 @@ func (a *Agent) replyWorker(ctx context.Context) {
 		a.ownLines = append(a.ownLines, text)
 		if len(a.ownLines) > 5 {
 			a.ownLines = a.ownLines[len(a.ownLines)-5:]
+		}
+		if job.takeoff {
+			a.takeoffLines = append(a.takeoffLines, text)
+			if len(a.takeoffLines) > 4 {
+				a.takeoffLines = a.takeoffLines[len(a.takeoffLines)-4:]
+			}
 		}
 		if _, err := a.mc.Call(ctx, "ChatMessage", map[string]any{"msg": text}); err != nil {
 			a.log.Warn("say", "err", err)
