@@ -28,6 +28,9 @@ type Options struct {
 	// LandOff: flyTo lands this many blocks short of the target, as the real pilot may (it calls a
 	// touch-down within 30 blocks done and leaves the rest to a walk).
 	LandOff float64
+	// WingmanDrops: flyFollow comes down at once while the leader still glides, as the real pilot
+	// did beside a low glider (31.10: a take-off every 2 s, a rocket each).
+	WingmanDrops bool
 }
 
 // Event is one thing the agent did to the world, for timelines and test assertions.
@@ -324,6 +327,11 @@ func (w *World) stepLocked() {
 			}
 			_, gliding := w.pvel[w.flyLeader]
 			w.moveLocked(*p, w.opt.FlySpeed*dt, 5)
+			if w.opt.WingmanDrops {
+				w.flyPhase, w.flyReason, w.flyLeader = "done", "landed", ""
+				w.logLocked("land", fmt.Sprintf("%d %d", int(w.x), int(w.z)))
+				return
+			}
 			if !gliding {
 				w.flyPhase, w.flyReason, w.flyLeader = "done", "arrived", ""
 				w.logLocked("land", fmt.Sprintf("%d %d", int(w.x), int(w.z)))

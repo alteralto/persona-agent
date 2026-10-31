@@ -423,6 +423,22 @@ func TestSimWingmanFollowsFlyingPlayer(t *testing.T) {
 	r.waitFor("on foot again", 4*time.Second, func() bool { return r.w.Count("cmd", "@follow Alex") >= 2 })
 }
 
+// The wingman flight comes down at once while the leader still glides: the bot rests before it
+// goes up again, instead of a take-off and a rocket every two seconds.
+func TestSimWingmanRestsAfterShortFlight(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, WingmanDrops: true}, nil)
+	r.w.AddPlayer("Alex", 8, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, иди за мной")
+	r.waitFor("@follow Alex", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
+	r.w.FlyPlayer("Alex", 3, 0)
+	r.waitFor("wingman take-off", 4*time.Second, func() bool { return r.w.Has("fly", "wingman Alex") })
+	time.Sleep(5 * time.Second)
+	if n := r.w.Count("fly", "wingman Alex"); n > 1 {
+		t.Errorf("took off beside the leader %d times in 5 s", n)
+	}
+}
+
 // The player grabs the mouse mid-flight: the bot lets go, starts no walk or new flight while the
 // hands are on, and does not walk to the flight's target afterwards.
 func TestSimHandTakeOverHoldsTheBot(t *testing.T) {

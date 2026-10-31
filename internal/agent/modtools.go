@@ -544,12 +544,17 @@ func (a *Agent) parkedInAir(name, pos string, now time.Time) bool {
 const (
 	flyTogetherNear  = 40.0
 	flyTogetherAgain = 90 * time.Second
+	// A flight beside a player that came down within shortWingFlight (the pilot lands beside a low
+	// glider at once) is not tried again for wingRest: it went up every 2 s, a rocket each time.
+	shortWingFlight = 4 * time.Second
+	wingRest        = 20 * time.Second
 )
 
 // joinFlyers takes off beside a player in the air: the one it follows at once, anyone close by
 // now and then. An elytra flyer gets an elytra wingman; a creative flyer, creative flight.
 func (a *Agent) joinFlyers(ctx context.Context) bool {
-	if !a.fork || a.flying || a.hovering || a.retryFlight != nil || a.judging() {
+	if !a.fork || a.flying || a.hovering || a.retryFlight != nil || a.judging() ||
+		time.Since(a.shortWing) < wingRest {
 		return false
 	}
 	// Whom to go up with: the one it follows; else the one it is with right now (visiting,
@@ -728,6 +733,9 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.applyFallSaves(ctx)
 		a.log.Info("flight: "+st.Phase, "reason", st.Reason, "rockets", st.Rocket,
 			"seconds", int(time.Since(a.flightStarted).Seconds()))
+		if !a.flyPoint && a.followAfter != "" && time.Since(a.flightStarted) < shortWingFlight {
+			a.shortWing = time.Now()
+		}
 		if a.places != nil {
 			a.places.AddTrack(explore.Track{Style: a.trackStyle, At: a.flightStarted, Points: a.track})
 			a.savePlaces()

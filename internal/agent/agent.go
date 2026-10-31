@@ -124,6 +124,7 @@ type Agent struct {
 	partnerAt       time.Time
 	hovering        bool                 // creative-flying beside a player (modtools.go)
 	lastFlyTogether time.Time            // the last time it joined a player in the air
+	shortWing       time.Time            // a flight beside a player came down at once (modtools.go)
 	hoverMarks      map[string]hoverMark // where each creative flyer was last seen moving (modtools.go)
 	homeSettled     bool                 // home put on its column's surface this run (roam.go)
 	leading         bool                 // walking players to the burrow
