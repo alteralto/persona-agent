@@ -11,6 +11,22 @@ in about two seconds, most of it speech recognition.
 
 ## How it works
 
+```mermaid
+flowchart LR
+  V["voice chat<br/>(Simple Voice Chat)"] --> W["Whisper<br/>speech to text"]
+  C["text chat<br/>(mod, MCP)"] --> F
+  W --> F{"called<br/>by name?"}
+  F -- no --> Q["stays quiet<br/>or chimes in"]
+  F -- yes --> L["Laya + keyword rules<br/>pick an action, ~0.1 s"]
+  L --> A["mod does it<br/>follow, fly, defend, give"]
+  A --> R{"answer<br/>needed?"}
+  R -- no --> S["acts without a word"]
+  R -- yes --> G["GigaChat writes the line<br/>(critic: no false promises)"]
+  G --> M["memory of the person"]
+  M --> T["chat"]
+  M --> P["Piper voice<br/>with stress marks"]
+```
+
 ```
  game voice chat ──Py4J──▶ voice/service.py ──(per player)──▶ Whisper large-v3-turbo ──▶ ┐
  game text chat ──MCP getRecentChat──────────────────────────────────────────────────────▶ ┤
