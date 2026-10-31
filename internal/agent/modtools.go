@@ -320,6 +320,13 @@ func (o flightOpts) args(m map[string]any) map[string]any {
 
 // startFlightOpts takes off for x, z.
 func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) bool {
+	if a.cfg.HoverOnly && a.creative {
+		if !a.startHoverTo(ctx, x, z) {
+			return false
+		}
+		a.flyX, a.flyZ = x, z
+		return true
+	}
 	y := 70
 	if a.places != nil && a.places.Home != nil {
 		y = explore.Block(a.places.Home.Y)
@@ -341,6 +348,10 @@ func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) boo
 
 // startRoute flies through the points without landing and lands at the last (fork flyRoute).
 func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool {
+	if a.cfg.HoverOnly && a.creative {
+		last := pts[len(pts)-1]
+		return a.startFlightOpts(ctx, last[0], last[1], o)
+	}
 	parts := make([]string, len(pts))
 	for i, p := range pts {
 		parts[i] = fmt.Sprintf("%d,%d", p[0], p[1])
@@ -595,8 +606,9 @@ func (a *Agent) joinFlyers(ctx context.Context) bool {
 	}
 	// On an elytra whichever way they fly: beside a glider, circling round a creative flyer
 	// (the pilot orbits a slow leader). Creative flight only when the elytra cannot go up.
-	ok := !a.noFlight && a.startWingman(ctx, p.name)
-	if !ok && p.how == airHover && a.creative {
+	hoverOnly := a.cfg.HoverOnly && a.creative
+	ok := !a.noFlight && !hoverOnly && a.startWingman(ctx, p.name)
+	if !ok && (p.how == airHover || hoverOnly) && a.creative {
 		ok = a.startHover(ctx, p.name)
 	}
 	if !ok {

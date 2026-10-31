@@ -73,6 +73,9 @@ type Config struct {
 	AllowBreak bool
 	// FlightStyle fixes how show flights are flown: normal, low, tricks, route; empty mixes them.
 	FlightStyle string
+	// HoverOnly: in creative every flight is creative flight, no elytra (HOVER_ONLY=1). For a
+	// server where elytra flights get pulled back mid-climb.
+	HoverOnly bool
 	// MarksDir: Xaero's waypoint folder (xaero/minimap); a waypoint named B there sends the bot.
 	MarksDir string
 	// XaeroServer: the server's folder under MarksDir that gets the bot's finds (not every world).
