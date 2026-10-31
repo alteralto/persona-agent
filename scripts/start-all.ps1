@@ -1,5 +1,5 @@
-# Start everything the character needs: Laya (decisions), the voice service (Whisper + Piper +
-# Py4J to the mod) and the agent. Start Minecraft and enter a world first.
+# Start everything the character needs: Laya (decisions), the voice service (Whisper + Piper,
+# game voice over UDP) and the agent. Start Minecraft and enter a world first.
 #   powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
 # Where things live: LAYA_SERVE (laya-serve.exe), LAYA_HF_HOME and WHISPER_HF_HOME (model caches;
 # unset: the default Hugging Face cache).
@@ -23,7 +23,7 @@ if (-not (Listening 8090)) {
 }
 Write-Host ('laya: ' + $(if (Listening 8090) { 'up' } else { 'NOT UP - see logs\laya.err.log' }))
 
-# 2. Voice service: Py4J callback on 25334, /say on 8091.
+# 2. Voice service: game voice on udp 25360, /say on 8091.
 if (-not (Listening 8091)) {
     $env:PYTHONIOENCODING = 'utf-8'; $env:HF_HUB_OFFLINE = '1'
     if ($env:WHISPER_HF_HOME) { $env:HF_HOME = $env:WHISPER_HF_HOME } else { Remove-Item Env:HF_HOME -ErrorAction SilentlyContinue }

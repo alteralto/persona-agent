@@ -28,7 +28,7 @@ flowchart LR
 ```
 
 ```
- game voice chat ──Py4J──▶ voice/service.py ──(per player)──▶ Whisper large-v3-turbo ──▶ ┐
+ game voice chat ──UDP───▶ voice/service.py ──(per player)──▶ Whisper large-v3-turbo ──▶ ┐
  game text chat ──MCP getRecentChat──────────────────────────────────────────────────────▶ ┤
                                                                                            ▼
                                        Go agent (cmd/agent)
@@ -50,7 +50,8 @@ flowchart LR
 - **One GigaChat stream.** Replies go through a single worker; a newer reason to speak replaces
   a waiting one instead of queueing behind it.
 - **Voice is per player.** UnionClef forwards every Simple Voice Chat packet tagged with the
-  speaker's name, so speakers are separated without diarisation.
+  speaker's name, so speakers are separated without diarisation. The packets come as UDP
+  datagrams, not over Py4J: nothing to connect or keep alive ([docs/voice-transport.md](docs/voice-transport.md)).
 - **Shared-server manners.** The pathfinder mines only natural terrain and places nothing (fork
   tool `setBuildPolicy`; with the upstream mod, a no-break zone around home).
 
@@ -129,7 +130,7 @@ switching on combat, a flight show right after "stay here", and more).
 | `cmd/simrun`, `internal/sim` | scripted scene against the simulated game |
 | `internal/agent` | decision loop, rules, critic, exploration, outings, fork tools |
 | `internal/{laya,giga,mcp,voice,chatlog,explore,memory}` | clients and building blocks |
-| `voice/service.py` | Py4J voice feed, Whisper STT, Piper TTS to the virtual cable, RUAccent stress marks |
+| `voice/service.py` | voice from the game over UDP, Whisper STT, Piper TTS to the virtual cable, RUAccent stress marks |
 | `bench/` | hand-labelled decision bench |
 | `scripts/start-all.ps1`, `scripts/stop-all.ps1` | start/stop Laya, voice and the agent |
 | `scripts/run-agent.sh`, `scripts/nightly.sh` | agent settings; nightly tuning |
@@ -139,13 +140,14 @@ Runtime data (`data/`, `logs/`, models, `.env`) is not committed.
 ## Running
 
 Needs: Minecraft 1.21.11 (Fabric) with UnionClef (ideally the fork
-[alteralto/unionclef](https://github.com/alteralto/unionclef), branch `pyhtun`), Simple Voice Chat
+[alteralto/unionclef](https://github.com/alteralto/unionclef), branch `pyhtun`; hearing needs it: it
+sends voice to `127.0.0.1:25360`), Simple Voice Chat
 with the microphone set to `CABLE Output` and voice activation, `laya-serve` on `127.0.0.1:8090`,
 GigaChat credentials in `.env` (see `.env.example`).
 
 ```bash
 go build -o bin/pyhtun.exe ./cmd/agent
-.venv-voice/Scripts/python.exe voice/service.py   # voice: STT + TTS + Py4J
+.venv-voice/Scripts/python.exe voice/service.py   # voice: STT + TTS, game voice on udp 25360
 scripts/run-agent.sh
 ```
 

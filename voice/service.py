@@ -1,8 +1,9 @@
 """Voice for the character: hears players in the game's voice chat, speaks through a virtual cable.
 
-Hearing: UnionClef forwards every Simple Voice Chat packet over Py4J (onVoiceFeed) already tagged
-with the player's name, so speakers are separated for free. A phrase ends when a player's packets
-stop arriving; it is transcribed and posted to the Go agent.
+Hearing: UnionClef sends every Simple Voice Chat packet as a UDP datagram to 127.0.0.1:25360, already
+tagged with the player's name, so speakers are separated for free (docs/voice-transport.md: why not
+Py4J). A phrase ends when a player's packets stop arriving; it is transcribed and posted to the Go
+agent.
 
 Speaking: the agent POSTs /say; Piper synthesizes and plays into "CABLE Input", which the game
 uses as its microphone.
@@ -18,6 +19,7 @@ import logging
 import os
 import queue
 import re
+import socket
 import threading
 import time
 import urllib.request
@@ -28,7 +30,6 @@ import sounddevice as sd
 import soxr
 from faster_whisper import WhisperModel
 from piper import PiperVoice
-from py4j.java_gateway import CallbackServerParameters, GatewayParameters, JavaGateway
 
 log = logging.getLogger("voice")
 
@@ -75,50 +76,40 @@ class Hearing:
                 self.phrases.put((nick, soxr.resample(audio, FEED_RATE, STT_RATE)))
 
 
-class GameCallback:
-    """Py4J callback the mod calls into. Must return fast: it runs on the game's threads."""
-
-    def __init__(self, hearing: Hearing):
-        self.hearing = hearing
-
-    def isStarted(self):
-        return True
-
-    def onVoiceFeed(self, nick, audio):
-        self.hearing.feed(str(nick), bytes(audio))
-
-    def onChatMessage(self, msg):
-        return msg
-
-    def onVerifedChat(self, msg):
-        return msg
-
-    def onUpdateServerInfo(self, info):
-        return info
-
-    def onDeath(self, killer):
-        pass
-
-    def onKill(self, killed):
-        pass
-
-    def onAutoclefEvent(self, kind, description):
-        pass
-
-    def onDamage(self, amount):
-        pass
-
-    def onDamageConfirmed(self, damaged, attacker, amount):
-        pass
-
-    def onCaptchaSolveRequest(self, image):
-        pass  # deliberately not solving server captchas
-
-    def agentCommandRequest(self, command):
-        return ""
-
-    class Java:
-        implements = ["adris.altoclef.PythonCallback"]
+def listen_game(hearing: Hearing, nick: str, port: int) -> None:
+    """Voice packets from the mod, one UDP datagram each: b"PYV1", u8 length + the nick of the
+    player whose game sent it, u8 length + the speaker's nick, PCM 16-bit LE 48 kHz mono. Nothing
+    to connect or keep alive: the game starts, restarts or reloads its settings and the next packet
+    simply arrives. Another bot's game on this machine sends to the same port; its packets are
+    dropped by the first nick."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)  # a second of several speakers
+    sock.bind(("127.0.0.1", port))
+    log.info("hearing the game of %s on udp %d", nick or "any player", port)
+    want = nick.lower()
+    games: set[str] = set()
+    while True:
+        try:
+            data = sock.recv(65535)
+        except OSError:
+            continue
+        if data[:4] != b"PYV1" or len(data) < 6:
+            continue
+        try:
+            n = data[4]
+            own = data[5:5 + n].decode("utf-8", "replace")
+            i = 5 + n
+            m = data[i]
+            speaker = data[i + 1:i + 1 + m].decode("utf-8", "replace")
+            pcm = data[i + 1 + m:]
+        except IndexError:
+            continue
+        if want and own.lower() != want:
+            continue
+        if own not in games:
+            games.add(own)
+            log.info("voice from the game of %s", own)
+        hearing.feed(speaker, pcm)
 
 
 def transcriber(phrases, model: WhisperModel, agent_url: str, hotwords: str):
@@ -380,10 +371,9 @@ def main():
     p.add_argument("--stress-models", default=os.path.join(ROOT, "models", "ruaccent"), help="RUAccent models folder")
     p.add_argument("--no-stress", action="store_true", help="no RUAccent stress marks")
     p.add_argument("--bot", default=bot_nick(), help="the bot's nickname: whose game to hear through")
+    p.add_argument("--game-port", type=int, default=25360, help="UDP port the mod sends voice to (voiceUdpPort)")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    # Py4J logs every callback at INFO: one line per 20 ms voice packet (5.7 MB in an evening).
-    logging.getLogger("py4j").setLevel(logging.WARNING)
 
     try:
         stress = None if args.no_stress else Stress(args.stress_models)
@@ -405,16 +395,13 @@ def main():
     hearing = Hearing(phrases)
     threading.Thread(target=transcriber, args=(phrases, model, args.agent, args.hotwords), daemon=True).start()
 
-    # The game may start after this service (the control panel starts everything at once):
-    # reach the mod in the background and speak meanwhile.
-    threading.Thread(target=await_mod, args=(GameCallback(hearing), args.bot), daemon=True).start()
+    # The game may start after this service (the control panel starts everything at once): its
+    # packets arrive whenever it is up.
+    threading.Thread(target=listen_game, args=(hearing, args.bot, args.game_port), daemon=True).start()
     log.info("speaking on %s, listening for /say on :%d", sd.query_devices(speaker.device)["name"], args.port)
     serve(args.port, speaker)
 
 
-# The mod's py4j port: 25333, or two up for each one taken when it started (a second game
-# client on this machine); the callback to us is on the port after it.
-MOD_PORTS = range(25333, 25353, 2)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -430,67 +417,6 @@ def bot_nick() -> str:
     except OSError:
         pass
     return ""
-
-
-def find_mod(nick: str) -> "int | None":
-    """The port of the game the bot plays in: the first mod whose player is the bot (any, with
-    no nickname). The port is not fixed -- the mod once saved a fallback port to the settings
-    both clients share, and this service waited on 25333 all evening, hearing nothing."""
-    for port in MOD_PORTS:
-        probe = JavaGateway(gateway_parameters=GatewayParameters(port=port))
-        try:
-            name = str(probe.entry_point.getGameState()["self"]["name"])
-        except Exception:
-            continue
-        finally:
-            probe.close()
-        if not nick or name.lower() == nick.lower():
-            return port
-    return None
-
-
-def await_mod(callback: "GameCallback", nick: str) -> None:
-    """Keep the mod handshake alive: look for the bot's game every 3 s until it is up, then check
-    every 5 s, and find it again after the game restarts (else the bot stops hearing players).
-    py4j's own tracebacks muted."""
-    py4j_log = logging.getLogger("py4j")
-    gateway = None
-    waiting = False
-    while True:
-        py4j_log.setLevel(logging.CRITICAL)
-        try:
-            if gateway is not None:
-                gateway.jvm.java.lang.System.currentTimeMillis()  # the game is still there?
-            else:
-                port = find_mod(nick)
-                if port is None:
-                    raise ConnectionError("no game")
-                gateway = JavaGateway(
-                    gateway_parameters=GatewayParameters(port=port),
-                    callback_server_parameters=CallbackServerParameters(port=port + 1),
-                    python_server_entry_point=callback,
-                    start_callback_server=True,
-                )
-                ok = gateway.entry_point.handshake()
-                log.info("mod on py4j %d (%s); handshake: %s", port, nick or "any player", ok)
-                waiting = False
-        except Exception:
-            if gateway is not None:
-                log.info("game gone; looking for it again")
-                try:
-                    gateway.shutdown()
-                except Exception:
-                    pass
-                gateway = None
-            if not waiting:
-                log.info("waiting for the game of %s (mod py4j on %d..%d)", nick or "any player",
-                         MOD_PORTS.start, MOD_PORTS.stop - 2)
-                waiting = True
-            time.sleep(3)
-            continue
-        finally:
-            py4j_log.setLevel(logging.WARNING)
-        time.sleep(5)
 
 
 if __name__ == "__main__":
