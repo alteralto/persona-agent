@@ -23,7 +23,7 @@ func main() {
 	}
 	settings := os.Getenv("MC_SETTINGS")
 	if settings == "" {
-		settings = `F:\.tlauncher\legacy\Minecraft\game\altoclef\altoclef_settings.json`
+		settings = mcp.DefaultSettings()
 	}
 	token, err := mcp.TokenFromSettings(settings)
 	if err != nil {

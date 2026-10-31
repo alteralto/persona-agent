@@ -1,5 +1,5 @@
 # Stop the agent, the voice service and Laya. Safe to run any time; Minecraft is not touched.
-#   powershell -ExecutionPolicy Bypass -File F:\persona-agent\scripts\stop-all.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\stop-all.ps1
 Get-Process pyhtun -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-CimInstance Win32_Process |
     Where-Object { $_.CommandLine -match 'voice\\service\.py|voice/service\.py|laya-serve' } |

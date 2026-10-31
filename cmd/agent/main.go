@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +33,7 @@ func main() {
 	if creds == "" {
 		fatal(log, "GIGACHAT_CREDENTIALS is required")
 	}
-	token, err := mcp.TokenFromSettings(env("MC_SETTINGS",
-		`F:\.tlauncher\legacy\Minecraft\game\altoclef\altoclef_settings.json`))
+	token, err := mcp.TokenFromSettings(env("MC_SETTINGS", mcp.DefaultSettings()))
 	if err != nil {
 		fatal(log, "read MCP token", "err", err)
 	}
@@ -67,7 +67,8 @@ func main() {
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),
 		AllowBreak:      env("ALLOW_BREAK", "false") == "true",
 		FlightStyle:     env("FLIGHT_STYLE", ""),
-		MarksDir:        env("MARKS_DIR", `F:\.tlauncher\legacy\Minecraft\game\xaero\minimap`),
+		HoverOnly:       env("HOVER_ONLY", "0") == "1",
+		MarksDir:        env("MARKS_DIR", filepath.Join(mcp.GameDir(), "xaero", "minimap")),
 		XaeroServer:     env("XAERO_SERVER", "Multiplayer_agicraft.ru"),
 	}
 	llm := giga.New(creds, env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"), env("GIGACHAT_MODEL", "GigaChat-2"),

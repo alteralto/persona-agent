@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -95,6 +96,13 @@ func (c *Client) lost() {
 		c.mu.Unlock()
 	}
 }
+
+// GameDir is the vanilla launcher's game folder, %APPDATA%\.minecraft. Another launcher keeps it
+// elsewhere: set MC_SETTINGS and MARKS_DIR then.
+func GameDir() string { return filepath.Join(os.Getenv("APPDATA"), ".minecraft") }
+
+// DefaultSettings is the mod's settings file in GameDir.
+func DefaultSettings() string { return filepath.Join(GameDir(), "altoclef", "altoclef_settings.json") }
 
 // TokenFromSettings reads mcpAuthToken from altoclef_settings.json without logging it.
 func TokenFromSettings(path string) (string, error) {

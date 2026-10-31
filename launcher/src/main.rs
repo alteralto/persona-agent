@@ -15,8 +15,6 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Color32, RichText};
 
 const NO_WINDOW: u32 = 0x0800_0000; // CREATE_NO_WINDOW: no console flashes for services
-const LAUNCHER: &str = r"F:\.tlauncher\legacy\Minecraft\LL.exe";
-const LAYA: &str = r"F:\laya\.venv-gpu\Scripts\laya-serve.exe";
 const BASH: &str = r"C:\Program Files\Git\bin\bash.exe";
 const PORT_MOD: u16 = 25350;
 const PORT_LAYA: u16 = 8090;
@@ -54,6 +52,11 @@ struct Settings {
     laya_cpu: bool, // Laya on the CPU leaves the whole GPU to the game
     flight_style: String, // "" mixes them; normal, low, tricks, route fix one
     twitch: String,       // the stream's channel: the agent reads its chat (empty: off)
+    // Where things live on this machine; set them in data/pult.ini.
+    mc_launcher: String,     // the Minecraft launcher's exe
+    laya_serve: String,      // laya-serve.exe
+    laya_hf_home: String,    // HF_HOME with Laya's weights (empty: the default cache)
+    whisper_hf_home: String, // HF_HOME with the Whisper model (empty: the default cache)
 }
 
 impl Default for Settings {
@@ -65,6 +68,10 @@ impl Default for Settings {
             laya_cpu: false,
             flight_style: String::new(),
             twitch: String::new(),
+            mc_launcher: String::new(),
+            laya_serve: String::new(),
+            laya_hf_home: String::new(),
+            whisper_hf_home: String::new(),
         }
     }
 }
@@ -195,7 +202,7 @@ impl eframe::App for Pult {
                 };
                 row(ui, st.checked, "Minecraft", up, text);
                 if ui.add_enabled(!st.game && free, egui::Button::new("Открыть лаунчер")).clicked() {
-                    self.run(&ctx, "Открываю лаунчер", |_, _| start_minecraft());
+                    self.run(&ctx, "Открываю лаунчер", |_, s| start_minecraft(s));
                 }
                 ui.end_row();
 
@@ -360,8 +367,12 @@ fn row(ui: &mut egui::Ui, checked: bool, name: &str, up: bool, text: &str) {
 
 // ---- services ----
 
-fn start_minecraft() -> String {
-    match Command::new(LAUNCHER).current_dir(Path::new(LAUNCHER).parent().unwrap()).spawn() {
+fn start_minecraft(s: &Settings) -> String {
+    if s.mc_launcher.is_empty() {
+        return "лаунчер не задан: mc_launcher=<путь к exe> в data/pult.ini".into();
+    }
+    let exe = Path::new(&s.mc_launcher);
+    match Command::new(exe).current_dir(exe.parent().unwrap_or(Path::new("."))).spawn() {
         Ok(_) => "лаунчер открыт: нажми «Играть», потом зайди в мир".into(),
         Err(e) => format!("лаунчер не открылся: {e}"),
     }
@@ -379,14 +390,20 @@ fn start_laya(root: &Path, s: &Settings) -> String {
     if listening(PORT_LAYA) {
         return String::new();
     }
+    if s.laya_serve.is_empty() {
+        return "Laya не задана: laya_serve=<путь к laya-serve.exe> в data/pult.ini".into();
+    }
     let (out, err) = log_files(root, "laya");
-    let spawned = Command::new(LAYA)
+    let mut cmd = Command::new(&s.laya_serve);
+    if !s.laya_hf_home.is_empty() {
+        cmd.env("HF_HOME", &s.laya_hf_home);
+    }
+    let spawned = cmd
         .envs([
             ("LAYA_HOST", "127.0.0.1"),
             ("LAYA_PORT", "8090"),
             ("LAYA_MODELS", "multilingual"),
             ("LAYA_DEVICE", if s.laya_cpu { "cpu" } else { "cuda" }),
-            ("HF_HOME", r"F:\laya\hf"),
             ("HF_HUB_OFFLINE", "1"),
             ("LAYA_LOG_LEVEL", "warning"),
         ])
@@ -401,19 +418,19 @@ fn start_laya(root: &Path, s: &Settings) -> String {
     if wait_port(PORT_LAYA, 120) { "Laya работает".into() } else { "Laya не поднялась, см. вкладку Laya".into() }
 }
 
-fn start_voice(root: &Path, _: &Settings) -> String {
+fn start_voice(root: &Path, s: &Settings) -> String {
     if listening(PORT_VOICE) {
         return String::new();
     }
     let (out, err) = log_files(root, "voice");
-    let spawned = Command::new(root.join(r".venv-voice\Scripts\python.exe"))
+    let mut cmd = Command::new(root.join(r".venv-voice\Scripts\python.exe"));
+    if !s.whisper_hf_home.is_empty() {
+        cmd.env("HF_HOME", &s.whisper_hf_home);
+    }
+    let spawned = cmd
         .args(["-u", r"voice\service.py"])
         .current_dir(root)
-        .envs([
-            ("PYTHONIOENCODING", "utf-8"),
-            ("HF_HUB_OFFLINE", "1"),
-            ("HF_HOME", r"F:\WinPython64-3.13.11.0dot_post1\whisper_models\hf_cache"),
-        ])
+        .envs([("PYTHONIOENCODING", "utf-8"), ("HF_HUB_OFFLINE", "1")])
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
@@ -532,7 +549,7 @@ fn wait_port(port: u16, secs: u64) -> bool {
 
 // ---- files ----
 
-/// The persona-agent folder: up from the exe to the one with go.mod, else the usual place.
+/// The persona-agent folder: up from the exe to the one with go.mod, else the current folder.
 fn find_root() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         for dir in exe.ancestors().skip(1) {
@@ -541,7 +558,7 @@ fn find_root() -> PathBuf {
             }
         }
     }
-    PathBuf::from(r"F:\persona-agent")
+    PathBuf::from(".")
 }
 
 fn tail(path: &Path, max: u64) -> String {
@@ -601,6 +618,10 @@ fn load_settings(root: &Path) -> Settings {
             Some(("laya_cpu", v)) => s.laya_cpu = v == "1",
             Some(("flight_style", v)) => s.flight_style = v.to_string(),
             Some(("twitch", v)) => s.twitch = v.to_string(),
+            Some(("mc_launcher", v)) => s.mc_launcher = v.to_string(),
+            Some(("laya_serve", v)) => s.laya_serve = v.to_string(),
+            Some(("laya_hf_home", v)) => s.laya_hf_home = v.to_string(),
+            Some(("whisper_hf_home", v)) => s.whisper_hf_home = v.to_string(),
             _ => {}
         }
     }
@@ -610,13 +631,18 @@ fn load_settings(root: &Path) -> Settings {
 fn save_settings(root: &Path, s: &Settings) {
     let b = |v: bool| if v { "1" } else { "0" };
     let text = format!(
-        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\ntwitch={}\n",
+        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\ntwitch={}\n\
+         mc_launcher={}\nlaya_serve={}\nlaya_hf_home={}\nwhisper_hf_home={}\n",
         b(s.test_mode),
         s.home_x.trim(),
         s.home_z.trim(),
         b(s.laya_cpu),
         s.flight_style,
-        s.twitch.trim()
+        s.twitch.trim(),
+        s.mc_launcher,
+        s.laya_serve,
+        s.laya_hf_home,
+        s.whisper_hf_home
     );
     let _ = fs::create_dir_all(root.join("data"));
     let _ = fs::write(settings_path(root), text);
