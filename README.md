@@ -38,6 +38,15 @@ in about two seconds, most of it speech recognition.
 - **Shared-server manners.** The pathfinder mines only natural terrain and places nothing (fork
   tool `setBuildPolicy`; with the upstream mod, a no-break zone around home).
 
+### The process in BPMN
+
+One line from a player, from the voice or the chat to the answer, and what the bot does in the
+quiet in between. Lanes are the parts that do the work: the voice service, the Go agent, Laya,
+GigaChat and the mod. The source is [docs/pyhtun.bpmn](docs/pyhtun.bpmn) (opens in
+[bpmn.io](https://demo.bpmn.io) or Camunda Modeler).
+
+![Pyhtun as a BPMN process](docs/pyhtun-bpmn.png)
+
 ## What the character does
 
 | Skill | How |

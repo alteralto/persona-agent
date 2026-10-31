@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  id="pyhtun-definitions" targetNamespace="https://github.com/alteralto/persona-agent">
+  <bpmn:collaboration id="collab">
+    <bpmn:participant id="pool" name="Pyhtun" processRef="pyhtun" />
+  </bpmn:collaboration>
+  <bpmn:process id="pyhtun" name="Pyhtun: a line from a player, and the quiet in between" isExecutable="false">
+    <bpmn:laneSet id="lanes">
+      <bpmn:lane id="laneVoice" name="Voice service">
+        <bpmn:flowNodeRef>startVoice</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>recognize</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>speak</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="laneAgent" name="Agent (Go)">
+        <bpmn:flowNodeRef>startChat</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>mergeInput</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>filter</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>addressed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endNotCalled</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>rules</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>needReply</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endSilent</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>prompt</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>mergeCritic</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>remember</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>split</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>join</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endAnswered</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>startIdle</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>pickActivity</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="laneLaya" name="Laya">
+        <bpmn:flowNodeRef>decide</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="laneLlm" name="GigaChat">
+        <bpmn:flowNodeRef>write</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>critic</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>rewrite</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="laneMod" name="Mod (UnionClef fork)">
+        <bpmn:flowNodeRef>act</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>post</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>doActivity</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>endIdle</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="startVoice" name="Player speaks">
+      <bpmn:messageEventDefinition id="startVoiceMsg" />
+    </bpmn:startEvent>
+    <bpmn:task id="recognize" name="Recognize speech (Whisper)" />
+    <bpmn:startEvent id="startChat" name="Player writes in chat">
+      <bpmn:messageEventDefinition id="startChatMsg" />
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="mergeInput" />
+    <bpmn:task id="filter" name="Filter: named? a scrap? said to someone else?" />
+    <bpmn:exclusiveGateway id="addressed" name="Called by name?" />
+    <bpmn:endEvent id="endNotCalled" name="Not called: now and then chimes in, else quiet" />
+    <bpmn:task id="decide" name="Pick an action (Laya cross-encoder)" />
+    <bpmn:task id="rules" name="Correct by keyword rules" />
+    <bpmn:task id="act" name="Do it: follow, stop, fly, defend, give" />
+    <bpmn:exclusiveGateway id="needReply" name="Answer needed?" />
+    <bpmn:endEvent id="endSilent" name="Acts without a word" />
+    <bpmn:task id="prompt" name="Build the prompt: the action, places, notes on the person, own last lines" />
+    <bpmn:task id="write" name="Write the line (GigaChat-2, Max for actions)" />
+    <bpmn:exclusiveGateway id="critic" name="Promises to move while standing?" />
+    <bpmn:task id="rewrite" name="Rewrite once (critic)" />
+    <bpmn:exclusiveGateway id="mergeCritic" />
+    <bpmn:task id="remember" name="Remember the exchange" />
+    <bpmn:parallelGateway id="split" />
+    <bpmn:task id="speak" name="Speak (Piper, stress marks)" />
+    <bpmn:task id="post" name="Post to chat" />
+    <bpmn:parallelGateway id="join" />
+    <bpmn:endEvent id="endAnswered" name="Answered" />
+
+    <bpmn:startEvent id="startIdle" name="Quiet for a while">
+      <bpmn:timerEventDefinition id="startIdleTimer" />
+    </bpmn:startEvent>
+    <bpmn:task id="pickActivity" name="Pick an activity: visit, flight, sign, scouting" />
+    <bpmn:task id="doActivity" name="Do it (walk or elytra)" />
+    <bpmn:endEvent id="endIdle" name="Back to idle" />
+
+    <bpmn:sequenceFlow id="f1" sourceRef="startVoice" targetRef="recognize" />
+    <bpmn:sequenceFlow id="f2" sourceRef="recognize" targetRef="mergeInput" />
+    <bpmn:sequenceFlow id="f3" sourceRef="startChat" targetRef="mergeInput" />
+    <bpmn:sequenceFlow id="f4" sourceRef="mergeInput" targetRef="filter" />
+    <bpmn:sequenceFlow id="f5" sourceRef="filter" targetRef="addressed" />
+    <bpmn:sequenceFlow id="f6" name="no" sourceRef="addressed" targetRef="endNotCalled" />
+    <bpmn:sequenceFlow id="f7" name="yes" sourceRef="addressed" targetRef="decide" />
+    <bpmn:sequenceFlow id="f8" sourceRef="decide" targetRef="rules" />
+    <bpmn:sequenceFlow id="f9" sourceRef="rules" targetRef="act" />
+    <bpmn:sequenceFlow id="f10" sourceRef="act" targetRef="needReply" />
+    <bpmn:sequenceFlow id="f11" name="no" sourceRef="needReply" targetRef="endSilent" />
+    <bpmn:sequenceFlow id="f12" name="yes" sourceRef="needReply" targetRef="prompt" />
+    <bpmn:sequenceFlow id="f13" sourceRef="prompt" targetRef="write" />
+    <bpmn:sequenceFlow id="f14" sourceRef="write" targetRef="critic" />
+    <bpmn:sequenceFlow id="f15" name="yes" sourceRef="critic" targetRef="rewrite" />
+    <bpmn:sequenceFlow id="f16" name="no" sourceRef="critic" targetRef="mergeCritic" />
+    <bpmn:sequenceFlow id="f17" sourceRef="rewrite" targetRef="mergeCritic" />
+    <bpmn:sequenceFlow id="f18" sourceRef="mergeCritic" targetRef="remember" />
+    <bpmn:sequenceFlow id="f19" sourceRef="remember" targetRef="split" />
+    <bpmn:sequenceFlow id="f20" sourceRef="split" targetRef="speak" />
+    <bpmn:sequenceFlow id="f21" sourceRef="split" targetRef="post" />
+    <bpmn:sequenceFlow id="f22" sourceRef="speak" targetRef="join" />
+    <bpmn:sequenceFlow id="f23" sourceRef="post" targetRef="join" />
+    <bpmn:sequenceFlow id="f24" sourceRef="join" targetRef="endAnswered" />
+    <bpmn:sequenceFlow id="f25" sourceRef="startIdle" targetRef="pickActivity" />
+    <bpmn:sequenceFlow id="f26" sourceRef="pickActivity" targetRef="doActivity" />
+    <bpmn:sequenceFlow id="f27" sourceRef="doActivity" targetRef="endIdle" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="diagram">
+    <bpmndi:BPMNPlane id="plane" bpmnElement="collab">
+      <bpmndi:BPMNShape id="pool_di" bpmnElement="pool" isHorizontal="true">
+        <dc:Bounds x="100" y="80" width="2420" height="880" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="laneVoice_di" bpmnElement="laneVoice" isHorizontal="true">
+        <dc:Bounds x="130" y="80" width="2390" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="laneAgent_di" bpmnElement="laneAgent" isHorizontal="true">
+        <dc:Bounds x="130" y="230" width="2390" height="300" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="laneLaya_di" bpmnElement="laneLaya" isHorizontal="true">
+        <dc:Bounds x="130" y="530" width="2390" height="130" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="laneLlm_di" bpmnElement="laneLlm" isHorizontal="true">
+        <dc:Bounds x="130" y="660" width="2390" height="150" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="laneMod_di" bpmnElement="laneMod" isHorizontal="true">
+        <dc:Bounds x="130" y="810" width="2390" height="150" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="startVoice_di" bpmnElement="startVoice">
+        <dc:Bounds x="180" y="137" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="180" width="76" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="recognize_di" bpmnElement="recognize">
+        <dc:Bounds x="250" y="115" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="startChat_di" bpmnElement="startChat">
+        <dc:Bounds x="180" y="312" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="152" y="355" width="92" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="mergeInput_di" bpmnElement="mergeInput" isMarkerVisible="true">
+        <dc:Bounds x="420" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="filter_di" bpmnElement="filter">
+        <dc:Bounds x="500" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="addressed_di" bpmnElement="addressed" isMarkerVisible="true">
+        <dc:Bounds x="660" y="305" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="644" y="268" width="82" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endNotCalled_di" bpmnElement="endNotCalled">
+        <dc:Bounds x="667" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="620" y="462" width="130" height="40" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="decide_di" bpmnElement="decide">
+        <dc:Bounds x="740" y="555" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="rules_di" bpmnElement="rules">
+        <dc:Bounds x="880" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="act_di" bpmnElement="act">
+        <dc:Bounds x="1040" y="845" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="needReply_di" bpmnElement="needReply" isMarkerVisible="true">
+        <dc:Bounds x="1200" y="305" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1182" y="275" width="86" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endSilent_di" bpmnElement="endSilent">
+        <dc:Bounds x="1207" y="420" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1180" y="462" width="90" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="prompt_di" bpmnElement="prompt">
+        <dc:Bounds x="1290" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_di" bpmnElement="write">
+        <dc:Bounds x="1450" y="695" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="critic_di" bpmnElement="critic" isMarkerVisible="true">
+        <dc:Bounds x="1610" y="710" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1580" y="768" width="110" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="rewrite_di" bpmnElement="rewrite">
+        <dc:Bounds x="1700" y="695" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="mergeCritic_di" bpmnElement="mergeCritic" isMarkerVisible="true">
+        <dc:Bounds x="1880" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="remember_di" bpmnElement="remember">
+        <dc:Bounds x="1960" y="290" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="split_di" bpmnElement="split">
+        <dc:Bounds x="2120" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="speak_di" bpmnElement="speak">
+        <dc:Bounds x="2200" y="115" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="post_di" bpmnElement="post">
+        <dc:Bounds x="2200" y="845" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="join_di" bpmnElement="join">
+        <dc:Bounds x="2340" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endAnswered_di" bpmnElement="endAnswered">
+        <dc:Bounds x="2440" y="312" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2430" y="355" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="startIdle_di" bpmnElement="startIdle">
+        <dc:Bounds x="180" y="442" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="160" y="485" width="76" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="pickActivity_di" bpmnElement="pickActivity">
+        <dc:Bounds x="260" y="420" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="doActivity_di" bpmnElement="doActivity">
+        <dc:Bounds x="260" y="845" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="endIdle_di" bpmnElement="endIdle">
+        <dc:Bounds x="420" y="867" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="404" y="910" width="68" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="216" y="155" /><di:waypoint x="250" y="155" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="370" y="155" /><di:waypoint x="445" y="155" /><di:waypoint x="445" y="305" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3">
+        <di:waypoint x="216" y="330" /><di:waypoint x="420" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4">
+        <di:waypoint x="470" y="330" /><di:waypoint x="500" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5">
+        <di:waypoint x="620" y="330" /><di:waypoint x="660" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f6_di" bpmnElement="f6">
+        <di:waypoint x="685" y="355" /><di:waypoint x="685" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="691" y="378" width="14" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f7_di" bpmnElement="f7">
+        <di:waypoint x="710" y="330" /><di:waypoint x="800" y="330" /><di:waypoint x="800" y="555" />
+        <bpmndi:BPMNLabel><dc:Bounds x="740" y="312" width="20" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f8_di" bpmnElement="f8">
+        <di:waypoint x="860" y="595" /><di:waypoint x="940" y="595" /><di:waypoint x="940" y="370" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f9_di" bpmnElement="f9">
+        <di:waypoint x="1000" y="330" /><di:waypoint x="1100" y="330" /><di:waypoint x="1100" y="845" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f10_di" bpmnElement="f10">
+        <di:waypoint x="1160" y="885" /><di:waypoint x="1180" y="885" /><di:waypoint x="1180" y="330" /><di:waypoint x="1200" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11_di" bpmnElement="f11">
+        <di:waypoint x="1225" y="355" /><di:waypoint x="1225" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1231" y="378" width="14" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f12_di" bpmnElement="f12">
+        <di:waypoint x="1250" y="330" /><di:waypoint x="1290" y="330" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1256" y="312" width="20" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f13_di" bpmnElement="f13">
+        <di:waypoint x="1410" y="330" /><di:waypoint x="1510" y="330" /><di:waypoint x="1510" y="695" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f14_di" bpmnElement="f14">
+        <di:waypoint x="1570" y="735" /><di:waypoint x="1610" y="735" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f15_di" bpmnElement="f15">
+        <di:waypoint x="1660" y="735" /><di:waypoint x="1700" y="735" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1666" y="717" width="20" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f16_di" bpmnElement="f16">
+        <di:waypoint x="1635" y="710" /><di:waypoint x="1635" y="330" /><di:waypoint x="1880" y="330" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1641" y="680" width="14" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f17_di" bpmnElement="f17">
+        <di:waypoint x="1820" y="735" /><di:waypoint x="1905" y="735" /><di:waypoint x="1905" y="355" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f18_di" bpmnElement="f18">
+        <di:waypoint x="1930" y="330" /><di:waypoint x="1960" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f19_di" bpmnElement="f19">
+        <di:waypoint x="2080" y="330" /><di:waypoint x="2120" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f20_di" bpmnElement="f20">
+        <di:waypoint x="2145" y="305" /><di:waypoint x="2145" y="155" /><di:waypoint x="2200" y="155" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f21_di" bpmnElement="f21">
+        <di:waypoint x="2145" y="355" /><di:waypoint x="2145" y="885" /><di:waypoint x="2200" y="885" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f22_di" bpmnElement="f22">
+        <di:waypoint x="2320" y="155" /><di:waypoint x="2365" y="155" /><di:waypoint x="2365" y="305" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f23_di" bpmnElement="f23">
+        <di:waypoint x="2320" y="885" /><di:waypoint x="2365" y="885" /><di:waypoint x="2365" y="355" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f24_di" bpmnElement="f24">
+        <di:waypoint x="2390" y="330" /><di:waypoint x="2440" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f25_di" bpmnElement="f25">
+        <di:waypoint x="216" y="460" /><di:waypoint x="260" y="460" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f26_di" bpmnElement="f26">
+        <di:waypoint x="320" y="500" /><di:waypoint x="320" y="845" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f27_di" bpmnElement="f27">
+        <di:waypoint x="380" y="885" /><di:waypoint x="420" y="885" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
