@@ -66,10 +66,12 @@ GigaChat and the mod. The source is [docs/pyhtun.bpmn](docs/pyhtun.bpmn) (opens 
 
 ### How the bot flies through rings and finds gaps
 
-[docs/how-flight-works.html](docs/how-flight-works.html) is an interactive 3D page (in Russian; open it in
-a browser). Both scenes run the mod's own formulas in the page. In one, the bot flies four rings and
-you watch it fly ~250 candidate glides two seconds ahead every other tick and keep one. In the
-other, a hall is cut into 4-block cubes and a search finds the way through the gaps. The physics model
+[Open the interactive 3D page](https://alteralto.github.io/persona-agent/how-flight-works.html)
+(source: [docs/how-flight-works.html](docs/how-flight-works.html)). Both scenes run the mod's own
+formulas in the page. In one, the bot flies four rings and you watch it fly ~250 candidate glides two
+seconds ahead every other tick and keep one. In the other, a hall is cut into 4-block cells and a
+search finds the way through the gaps. A step-by-step mode shows one part of the scene at a time,
+and the page has dark and light themes. The physics model
 and the solver are in the UnionClef fork (tungsten `elytra/ElytraPhysics`, `ElytraSolver`); the route
 search through the air is still being worked on.
 

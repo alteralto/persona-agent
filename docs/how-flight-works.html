@@ -1,158 +1,243 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Как бот пролетает кольца</title>
+<title>How the bot flies rings and finds a way through gaps</title>
+<meta name="description" content="An interactive 3D page: how a Minecraft bot on elytra plans its glide through rings and searches a way through a hall of walls, with the same physics as the mod">
+<script>
+// Theme before first paint: the stored choice, or the system's when it is "auto"
+(function () {
+  var q = new URLSearchParams(location.search).get("theme");
+  var c = /^(auto|dark|light)$/.test(q || "") ? q : localStorage.getItem("theme") || "auto";
+  var dark = c === "dark" || (c === "auto" && !matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Unbounded:wght@500&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* VibeCADing dark: navy paper, blue buttons, pink only for what the machine chose (the glide it
-     picked, the corners it kept). Cyan marks targets, coral what would hit, orange the rockets.
-     Layout: 3D viewport left, a narrow instrument column right. */
+  /* VibeCADing: navy or paper ground, blue buttons, pink only for what the machine chose (the glide it
+     picked, the corners it kept). Cyan marks targets, coral what would hit, orange the rockets */
   --bg: #0b1330;
   --panel: #0f1a40;
   --line: #26325c;
+  --line-strong: #3a5bb0;
   --ink: #e6ecfa;
   --muted: #9aa6c4;
   --blue: #17357e;
   --chalk: #eaf0ff;
   --pink: #ff6fb0;
+  --pink-ink: #ff8cc0;
   --cyan: #4cc8e0;
   --coral: #ef6b5b;
+  --veil: rgba(11, 19, 48, .84);
+  --btn: #16224f;
+  --note-ink: #f3c6bf;
+  --note-bg: rgba(239, 107, 91, .1);
   --font-display: "Unbounded", "Segoe UI", sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   color-scheme: dark;
 }
+:root[data-theme="light"] {
+  --bg: #f4f6fa;
+  --panel: #ebeff7;
+  --line: #d3dae8;
+  --line-strong: #1c3f94;
+  --ink: #0d1838;
+  --muted: #4b5675;
+  --blue: #1c3f94;
+  --pink-ink: #b3125e;
+  --cyan: #0b7592;
+  --coral: #b93a2a;
+  --veil: rgba(244, 246, 250, .9);
+  --btn: #ffffff;
+  --note-ink: #7d2418;
+  --note-bg: rgba(185, 58, 42, .08);
+  color-scheme: light;
+}
 * { box-sizing: border-box; }
 ::selection { background: rgba(255, 111, 176, .35); color: var(--ink); }
-html { scrollbar-color: #33415a var(--panel); }
-body { caret-color: var(--pink); }
+html { scrollbar-color: var(--line) var(--panel); }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); display: flex; flex-direction: column; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 14px 20px 10px; border-bottom: 1px solid var(--line); }
-h1 { font: 500 19px/1.2 var(--font-display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
-header p { margin: 0; color: var(--muted); max-width: 70ch; }
-.tabs { display: flex; gap: 6px; margin-left: auto; }
-.tabs button { font: 500 14px var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 6px 14px; cursor: pointer; }
-.tabs button[aria-selected="true"] { color: var(--chalk); background: var(--blue); border-color: #3a5bb0; }
-.tabs button:focus-visible, .ctl button:focus-visible, .ctl input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
-#view { position: relative; min-height: 360px; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); display: flex; flex-direction: column; caret-color: var(--pink); }
+a { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+a:hover { text-decoration-color: var(--pink); }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 14px 20px 12px; border-bottom: 1px solid var(--line); }
+.title { flex: 1 1 320px; min-width: 0; }
+h1 { font: 500 19px/1.25 var(--font-display); margin: 0 0 4px; letter-spacing: .01em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 72ch; }
+.switches { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; }
+.seg button { font: 500 14px var(--font-body); color: var(--muted); background: transparent; border: 0; padding: 6px 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-selected="true"], .seg button[aria-pressed="true"] { color: var(--chalk); background: var(--blue); }
+.seg.small button { font-size: 13px; padding: 5px 10px; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-selected="true"]:hover, .seg button[aria-pressed="true"]:hover { color: var(--chalk); }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+#view { position: relative; min-height: 360px; overflow: hidden; }
 #view canvas { display: block; width: 100%; height: 100%; }
-.hint { position: absolute; left: 14px; bottom: 12px; color: var(--muted); font-size: 12px; background: rgba(11, 19, 48, .8); padding: 4px 8px; border-radius: 3px; pointer-events: none; }
-.legend { position: absolute; left: 14px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); background: rgba(11, 19, 48, .8); padding: 6px 10px; border-radius: 3px; max-width: calc(100% - 28px); }
+.legend { position: absolute; left: 14px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); background: var(--veil); border: 1px solid var(--line); padding: 6px 10px; border-radius: 3px; max-width: calc(100% - 28px); pointer-events: none; }
 .legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
-aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 16px 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+.hint { position: absolute; right: 14px; bottom: 12px; color: var(--muted); font-size: 12px; background: var(--veil); padding: 4px 8px; border-radius: 3px; pointer-events: none; }
+.caption { position: absolute; left: 14px; bottom: 12px; max-width: min(52ch, calc(100% - 28px)); background: var(--veil); border: 1px solid var(--line-strong); border-radius: 3px; padding: 10px 14px; pointer-events: none; }
+.caption[hidden] { display: none; }
+.caption small { display: block; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.caption b { display: block; font: 500 15px/1.3 var(--font-display); margin: 2px 0 4px; }
+.caption span { font-size: 14px; }
+#labels { position: absolute; inset: 0; pointer-events: none; }
+#labels div { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 12px; line-height: 1.2; color: var(--ink); background: var(--veil); border: 1px solid var(--line); border-radius: 2px; padding: 2px 6px; will-change: transform; }
+#labels div[data-kind="pick"] { border-color: var(--pink); }
+#labels div[data-kind="hit"] { border-color: var(--coral); }
+#labels div[data-kind="target"] { border-color: var(--cyan); }
+aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 16px 18px 24px; display: flex; flex-direction: column; gap: 18px; }
 aside h2 { font: 600 15px/1.3 var(--font-body); color: var(--ink); margin: 0 0 8px; text-wrap: balance; }
-ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
-ol.steps li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
-ol.steps b { display: block; color: var(--ink); font-weight: 600; }
-.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.ctl button { font: 500 14px var(--font-body); color: var(--ink); background: #16224f; border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; cursor: pointer; }
-.ctl button:hover, .tabs button:hover { border-color: #3a5bb0; }
-.ctl button.primary { background: var(--blue); color: var(--chalk); border-color: #3a5bb0; }
-.ctl label { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; font-size: 13px; color: var(--muted); }
-.ctl label input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--pink); }
-.ctl label output { color: var(--ink); font-variant-numeric: tabular-nums; }
+aside p { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; counter-reset: step; }
+ol.steps li { counter-increment: step; }
+ol.steps button { display: grid; grid-template-columns: 22px 1fr; gap: 0 8px; width: 100%; text-align: left; font: 14px/1.45 var(--font-body); color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 7px 8px; cursor: pointer; }
+ol.steps button::before { content: counter(step); grid-row: 1 / 3; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+ol.steps button b { color: var(--ink); font-weight: 600; }
+ol.steps button:hover { border-color: var(--line); }
+ol.steps button[aria-pressed="true"] { border-color: var(--line-strong); background: var(--bg); color: var(--ink); }
+ol.steps button[aria-pressed="true"]::before { color: var(--pink-ink); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row + .row { margin-top: 10px; }
+.btn { font: 500 14px var(--font-body); color: var(--ink); background: var(--btn); border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--line-strong); }
+.btn.primary { background: var(--blue); color: var(--chalk); border-color: var(--line-strong); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+.ctl label.slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; font-size: 13px; color: var(--muted); }
+.ctl label.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--pink); }
+.ctl output { color: var(--ink); font-variant-numeric: tabular-nums; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); width: 100%; }
-.check input { accent-color: var(--cyan); }
+.check input { accent-color: var(--blue); margin: 0; }
 dl.read { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 dl.read dt { color: var(--muted); }
 dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
-.note { font-size: 13px; color: #f3c6bf; background: rgba(239, 107, 91, .1); border-radius: 3px; padding: 8px 12px; margin: 12px 0 0; }
+.note { font-size: 13px; color: var(--note-ink); background: var(--note-bg); border-radius: 3px; padding: 8px 12px; margin: 12px 0 0; }
 .facts { font-size: 13px; color: var(--muted); }
 .facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.facts p { font-size: 13px; }
 .scene[hidden] { display: none; }
-@media (max-width: 860px) {
-  main { grid-template-columns: 1fr; grid-template-rows: 58vh auto; }
-  aside { border-left: 0; border-top: 1px solid var(--line); }
-  .tabs { margin-left: 0; }
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60vh auto; }
+  html, body { height: auto; }
+  aside { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .hint { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Как бот пролетает кольца и ищет проёмы</h1>
-  <p>Обе сцены считаются прямо здесь, по тем же формулам, что в моде: физика элитр, перебор вариантов, поиск по кубикам</p>
-  <nav class="tabs" role="tablist">
-    <button role="tab" id="tab-rings" aria-selected="true">Кольца</button>
-    <button role="tab" id="tab-maze" aria-selected="false">Лабиринт</button>
-  </nav>
+  <div class="title">
+    <h1>How the bot flies rings and finds a way through gaps</h1>
+    <p>Both scenes are computed right here with the same formulas as the mod: elytra physics, a few hundred moves tried ahead, a search through 4-block cells</p>
+  </div>
+  <div class="switches">
+    <div class="seg" role="tablist" aria-label="Scene">
+      <button role="tab" id="tab-rings" aria-selected="true" aria-controls="view">Rings</button>
+      <button role="tab" id="tab-maze" aria-selected="false" aria-controls="view">Maze</button>
+    </div>
+    <div class="seg small" role="group" aria-label="Theme">
+      <button data-theme-choice="auto" aria-pressed="true">Auto</button>
+      <button data-theme-choice="dark" aria-pressed="false">Dark</button>
+      <button data-theme-choice="light" aria-pressed="false">Light</button>
+    </div>
+  </div>
 </header>
 <main>
   <div id="view">
+    <div id="labels" aria-hidden="true"></div>
     <div class="legend" id="legend"></div>
-    <div class="hint">Мышь: вращать, колесо: приблизить, правая кнопка: сдвинуть</div>
+    <div class="caption" id="caption" hidden aria-live="polite"><small id="cap-n"></small><b id="cap-t"></b><span id="cap-x"></span></div>
+    <div class="hint">Drag to orbit, scroll to zoom, right-drag to pan</div>
   </div>
   <aside>
-    <section class="scene" id="side-rings">
-      <h2>Что происходит</h2>
-      <ol class="steps">
-        <li><b>Цель</b>Боту дали центры колец. Сами рамки он не ищет: для него это просто блоки</li>
-        <li><b>Перебор</b>Каждые 2 тика около 250 вариантов: наклон, поворот, ракета сейчас или нет. Каждый пролетается на 40 тиков (2 с) вперёд по модели физики</li>
-        <li><b>Отсев</b>Вариант, где тело 0.6×0.6 задевает блок, выкидывается (красные)</li>
-        <li><b>Оценка</b>Штраф за то, как далеко путь проходит от центра кольца, за нехватку скорости и высоты, за каждую ракету. Лучший (розовый) летится два тика, потом всё заново</li>
-        <li><b>Засчитано</b>Когда бот пересёк плоскость кольца. Промах: насколько далеко от центра он её пересёк</li>
+    <section>
+      <h2>Step by step</h2>
+      <p>Pick a step to see only its part of the scene</p>
+      <ol class="steps scene" id="steps-rings">
+        <li><button aria-pressed="false"><b>Goal</b><span>The bot is given the ring centres. It does not look for the frames: to it they are just blocks</span></button></li>
+        <li><button aria-pressed="false"><b>Try</b><span>Every 2 ticks it tries about 250 moves: pitch, turn, a rocket now or not. Each is flown 40 ticks (2 s) ahead in the physics model</span></button></li>
+        <li><button aria-pressed="false"><b>Drop</b><span>A try where the 0.6 × 0.6 body touches a block is dropped (coral)</span></button></li>
+        <li><button aria-pressed="false"><b>Score</b><span>Penalties for passing far from the ring centre, for lacking speed or height, and for each rocket. The best try (pink) is flown for 2 ticks, then it all starts over</span></button></li>
+        <li><button aria-pressed="false"><b>Count</b><span>A ring counts when the bot crosses its plane. The miss is how far from the centre it crossed</span></button></li>
       </ol>
-    </section>
-    <section class="scene" id="side-maze" hidden>
-      <h2>Что происходит</h2>
-      <ol class="steps">
-        <li><b>Сетка</b>Зал режется на кубики 4×4×4 блока. Кубик, где есть хоть один блок, закрыт (красные)</li>
-        <li><b>Поиск A*</b>От старта по открытым кубикам к цели, 26 соседей у каждого. Подъём дороже снижения (высоту покупают ракетами), кубик у стены дороже (элитрам нужен простор)</li>
-        <li><b>Спрямление</b>Из цепочки кубиков остаются только углы, которые прямой полёт не срежет, не дальше 28 блоков друг от друга</li>
-        <li><b>Полёт</b>Углы решатель проходит как кольца, со своим перебором вариантов</li>
+      <ol class="steps scene" id="steps-maze" hidden>
+        <li><button aria-pressed="false"><b>Grid</b><span>The hall is cut into 4 × 4 × 4 cells. A cell with any block in it is closed (coral)</span></button></li>
+        <li><button aria-pressed="false"><b>Search</b><span>A* from the start through open cells to the goal, 26 neighbours per cell. Climbing costs more than descending, since height is bought with rockets, and a cell next to a wall costs more, since elytra need room</span></button></li>
+        <li><button aria-pressed="false"><b>Chain</b><span>The cells the search settled on, from the start to the goal</span></button></li>
+        <li><button aria-pressed="false"><b>Straighten</b><span>Only the corners a straight flight cannot cut are kept, at most 28 blocks apart</span></button></li>
+        <li><button aria-pressed="false"><b>Fly</b><span>The solver flies the corners like rings, with its own tries</span></button></li>
       </ol>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="s-prev">Back</button>
+        <button class="btn" id="s-next">Next step</button>
+        <button class="btn" id="s-all" disabled>Show all</button>
+      </div>
     </section>
 
     <section class="scene ctl" id="ctl-rings">
-      <button class="primary" id="r-run">Пауза</button>
-      <button id="r-step">Шаг: 2 тика</button>
-      <button id="r-reset">Сначала</button>
-      <label for="r-cost">Цена ракеты, блоков продвижения <output id="r-cost-out">12</output>
-        <input type="range" id="r-cost" min="0" max="60" step="1" value="12"></label>
-      <label for="r-speed">Скорость показа <output id="r-speed-out">1×</output>
-        <input type="range" id="r-speed" min="0.25" max="2" step="0.25" value="1"></label>
-      <span class="check"><input type="checkbox" id="r-others" checked><label for="r-others" style="display:inline">Показывать отброшенные варианты</label></span>
+      <h2>Flight</h2>
+      <div class="row">
+        <button class="btn primary" id="r-run">Pause</button>
+        <button class="btn" id="r-step">Step 2 ticks</button>
+        <button class="btn" id="r-reset">Restart</button>
+      </div>
+      <div class="row">
+        <label class="slider" for="r-cost">Rocket price, in blocks of progress <output id="r-cost-out">12</output>
+          <input type="range" id="r-cost" min="0" max="60" step="1" value="12"></label>
+        <label class="slider" for="r-speed">Replay speed <output id="r-speed-out">1×</output>
+          <input type="range" id="r-speed" min="0.25" max="2" step="0.25" value="1"></label>
+        <span class="check"><input type="checkbox" id="r-others" checked><label for="r-others">Show the tries it dropped</label></span>
+      </div>
     </section>
     <section class="scene ctl" id="ctl-maze" hidden>
-      <button class="primary" id="m-search">Искать путь</button>
-      <button id="m-reset">Очистить</button>
-      <span class="check"><input type="checkbox" id="m-closed" checked><label for="m-closed" style="display:inline">Показывать закрытые кубики</label></span>
-      <span class="check"><input type="checkbox" id="m-seen" checked><label for="m-seen" style="display:inline">Показывать, куда смотрел поиск</label></span>
+      <h2>Search</h2>
+      <div class="row">
+        <button class="btn primary" id="m-search">Find a way</button>
+        <button class="btn" id="m-reset">Clear</button>
+      </div>
+      <div class="row">
+        <span class="check"><input type="checkbox" id="m-closed" checked><label for="m-closed">Show closed cells</label></span>
+        <span class="check"><input type="checkbox" id="m-seen" checked><label for="m-seen">Show where the search looked</label></span>
+      </div>
     </section>
 
     <section class="scene" id="read-rings">
-      <h2>Приборы</h2>
+      <h2>Instruments</h2>
       <dl class="read">
-        <dt>Тик</dt><dd id="rd-tick">0</dd>
-        <dt>Скорость, блок/тик</dt><dd id="rd-speed">0</dd>
-        <dt>Высота</dt><dd id="rd-h">0</dd>
-        <dt>Кольцо</dt><dd id="rd-ring">1 / 4</dd>
-        <dt>Промахи, блоков</dt><dd id="rd-miss">-</dd>
-        <dt>Ракет сожжено</dt><dd id="rd-rk">0</dd>
-        <dt>Вариантов: всего / врезались</dt><dd id="rd-cand">0 / 0</dd>
-        <dt>Выбрано: наклон, ракета</dt><dd id="rd-pick">-</dd>
+        <dt>Tick</dt><dd id="rd-tick">0</dd>
+        <dt>Speed, blocks per tick</dt><dd id="rd-speed">0</dd>
+        <dt>Height</dt><dd id="rd-h">0</dd>
+        <dt>Ring</dt><dd id="rd-ring">1 of 4</dd>
+        <dt>Misses, blocks</dt><dd id="rd-miss">none yet</dd>
+        <dt>Rockets used</dt><dd id="rd-rk">0</dd>
+        <dt>Tries: all, would hit</dt><dd id="rd-cand">0, 0</dd>
+        <dt>Chosen: pitch, rocket</dt><dd id="rd-pick">none yet</dd>
       </dl>
     </section>
     <section class="scene" id="read-maze" hidden>
-      <h2>Приборы</h2>
+      <h2>Instruments</h2>
       <dl class="read">
-        <dt>Кубиков в зале</dt><dd id="md-cells">0</dd>
-        <dt>Закрытых</dt><dd id="md-closed">0</dd>
-        <dt>Поиск просмотрел</dt><dd id="md-seen">0</dd>
-        <dt>Путь, кубиков</dt><dd id="md-path">-</dd>
-        <dt>Опорных точек</dt><dd id="md-corners">-</dd>
+        <dt>Cells in the hall</dt><dd id="md-cells">0</dd>
+        <dt>Closed</dt><dd id="md-closed">0</dd>
+        <dt>Cells the search looked at</dt><dd id="md-seen">0</dd>
+        <dt>Route, cells</dt><dd id="md-path">not searched</dd>
+        <dt>Corners kept</dt><dd id="md-corners">not searched</dd>
       </dl>
-      <p class="note">В игре поиск этот путь находит. Долететь от нижнего проёма к верхнему бот пока не может: поиск не знает, насколько круто способны набирать высоту элитры, и на подъёме бот теряет скорость. Это следующий шаг</p>
+      <p class="note">In the game the search finds this route. Flying it is another matter: the search does not know how steeply elytra can climb, so on the way from the low gap up to the high one the bot runs out of speed. Teaching the search that is the next step</p>
     </section>
 
     <section class="facts">
-      <h2>Модель физики</h2>
-      Шаг полёта повторяет игру: планирование, потом тяга ракеты. Проверка на <b>848</b> тиках настоящего полёта: скорость расходится с игрой на <b>0.0000</b> блока/тик в планировании и <b>0.0001</b> под ракетой (медиана)
+      <h2>The physics model</h2>
+      <p>Each tick repeats the game: the glide first, then the rocket's pull. Checked against <b>848</b> ticks of real flight, the speed differs from the game by <b>0.0000</b> blocks per tick when gliding and <b>0.0001</b> under a rocket (median)</p>
+      <p>Code: <a href="https://github.com/alteralto/unionclef/tree/pyhtun">UnionClef fork, branch pyhtun</a> and the agent in <a href="https://github.com/alteralto/persona-agent">persona-agent</a></p>
     </section>
   </aside>
 </main>
@@ -180,11 +265,27 @@ function step(v, yaw, pitch, rocket) {
   return [mx, my, mz];
 }
 
+// ---------- theme: one palette for the page and the 3D scenes ----------
+const PALETTES = {
+  dark: { bg: 0x0b1330, ground: 0x101b42, grid: 0x24315e, slate: 0x7c89aa, coral: 0xef6b5b, cyan: 0x4cc8e0, pick: 0xff6fb0,
+    trail: 0xb9c6d8, rocket: 0xff8a2a, passed: 0x5b6b80, glass: 0x9fd6ff, glassOp: 0.06, glassEdge: 0x6fa8c8, seen: 0x8fa3bf,
+    body: 0x3f7fd0, wing: 0x9aa7b8, start: 0xffffff, sky: 0xcfe0ff, earth: 0x1a2230, hemi: 0.9, closedOp: 0.11 },
+  light: { bg: 0xf4f6fa, ground: 0xe6eaf2, grid: 0xc9d1e2, slate: 0x7a85a3, coral: 0xd0503e, cyan: 0x0e8eb0, pick: 0xff4f9e,
+    trail: 0x4b5675, rocket: 0xe06a10, passed: 0xa9b3c8, glass: 0x1c3f94, glassOp: 0.035, glassEdge: 0x5a7fb0, seen: 0x6d7fa3,
+    body: 0x1c3f94, wing: 0x8f9ab0, start: 0x0d1838, sky: 0xffffff, earth: 0xb8c2d6, hemi: 1.0, closedOp: 0.14 }
+};
+let P = PALETTES[document.documentElement.dataset.theme] || PALETTES.dark;
+const hex = c => "#" + c.toString(16).padStart(6, "0");
+const sysLight = matchMedia("(prefers-color-scheme: light)");
+// a link may carry ?theme=, ?scene= and ?step= to open on one view
+const QS = new URLSearchParams(location.search);
+let themeChoice = /^(auto|dark|light)$/.test(QS.get("theme") || "") ? QS.get("theme") : localStorage.getItem("theme") || "auto";
+
 // ---------- shared 3D setup ----------
 const view = document.getElementById("view");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-view.appendChild(renderer.domElement);
+view.prepend(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -193,14 +294,24 @@ function resize() {
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resize);
-const COL = { pick: 0xff6fb0, cyan: 0x4cc8e0, coral: 0xef6b5b, slate: 0x7c89aa, ground: 0x111d48, grid: 0x26325c };
 
+const themed = [];   // [object, apply(P)] pairs repainted when the theme changes
 function makeScene() {
   const s = new THREE.Scene();
-  s.background = new THREE.Color(0x0b1330);
-  s.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a2230, 0.9));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1); s.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(60, 120, 40); s.add(sun);
+  themed.push([s, p => { s.background = new THREE.Color(p.bg); hemi.color.setHex(p.sky); hemi.groundColor.setHex(p.earth); hemi.intensity = p.hemi; }]);
   return s;
+}
+function floor(scene, w, d, cx) {
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial());
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, 0, 0); scene.add(ground);
+  let grid = null;
+  themed.push([ground, p => {
+    ground.material.color.setHex(p.ground);
+    if (grid) scene.remove(grid);
+    grid = new THREE.GridHelper(w, w / 4, p.grid, p.grid); grid.position.set(cx, 0.01, 0); scene.add(grid);
+  }]);
 }
 function voxels(scene, list, color, opacity) {
   const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -222,20 +333,90 @@ function tube(points, color, r = 0.18) {
   return new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, points.length * 2), r, 6, false),
     new THREE.MeshBasicMaterial({ color }));
 }
+// a layer is rebuilt every redraw: free its GPU buffers, or a long run exhausts the context
+function drop(scene, layer) {
+  if (!layer) return;
+  scene.remove(layer);
+  layer.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+}
 function setLegend(items) {
   document.getElementById("legend").innerHTML =
-    items.map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("");
+    items.map(([c, t]) => `<span><i style="background:${hex(c)}"></i>${t}</span>`).join("");
 }
 
+// ---------- labels: HTML tags pinned to points of the scene ----------
+const labelBox = document.getElementById("labels");
+const labels = { rings: [], maze: [] };
+const pool = [];
+const tmp = new THREE.Vector3();
+const RANK = { pick: 0, target: 1, hit: 1 };
+function placeLabels() {
+  const list = labels[current].map((l, i) => [l, i]).sort((a, b) => (RANK[a[0].kind] ?? 2) - (RANK[b[0].kind] ?? 2) || a[1] - b[1]);
+  const w = view.clientWidth, h = view.clientHeight, taken = [];
+  while (pool.length < list.length) { const d = document.createElement("div"); labelBox.appendChild(d); pool.push(d); }
+  pool.forEach((d, i) => {
+    const l = list[i] && list[i][0];
+    if (!l) { d.style.display = "none"; return; }
+    tmp.set(l.at[0], l.at[1], l.at[2]).project(camera);
+    if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) { d.style.display = "none"; return; }
+    d.style.display = "";
+    if (d.textContent !== l.text) d.textContent = l.text;
+    d.dataset.kind = l.kind || "";
+    // the more important tags keep their place, the rest step up until they no longer cover one
+    const bw = d.offsetWidth, bh = d.offsetHeight;
+    let x = (tmp.x + 1) / 2 * w - bw / 2, y = (1 - tmp.y) / 2 * h - bh - 8;
+    for (let k = 0; k < 8 && taken.some(r => x < r[2] && x + bw > r[0] && y < r[3] && y + bh > r[1]); k++) y -= bh + 3;
+    taken.push([x, y, x + bw, y + bh]);
+    d.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+  });
+}
+
+// ---------- steps: one part of the scene at a time ----------
+const STEPS = { rings: [], maze: [] };
+for (const id of ["rings", "maze"])
+  document.querySelectorAll(`#steps-${id} button`).forEach((b, i) => {
+    STEPS[id].push({ title: b.querySelector("b").textContent, text: b.querySelector("span").textContent, el: b });
+    b.onclick = () => setFocus(id, focus[id] === i + 1 ? 0 : i + 1);
+  });
+const focus = { rings: 0, maze: 0 };
+function setFocus(id, i) {
+  focus[id] = i;
+  STEPS[id].forEach((s, k) => s.el.setAttribute("aria-pressed", k + 1 === i));
+  showCaption();
+  if (id === "rings") {
+    if (i) setRunning(false);
+    redrawRings();
+  } else {
+    if (i >= 2 && !mazeRun) search();
+    if (i >= 3 || reduced) mazeAnim = 1e9;
+    else if (i === 2) mazeAnim = 0;
+    drawMaze();
+  }
+}
+function showCaption() {
+  const i = focus[current], cap = document.getElementById("caption"), n = STEPS[current].length;
+  document.getElementById("s-all").disabled = !i;
+  document.getElementById("s-prev").disabled = i <= 1;
+  document.getElementById("s-next").disabled = i >= n;
+  document.getElementById("s-next").textContent = i ? "Next step" : "Step by step";
+  cap.hidden = !i;
+  if (!i) return;
+  const s = STEPS[current][i - 1];
+  document.getElementById("cap-n").textContent = `Step ${i} of ${n}`;
+  document.getElementById("cap-t").textContent = s.title;
+  document.getElementById("cap-x").textContent = s.text;
+}
+document.getElementById("s-prev").onclick = () => setFocus(current, Math.max(1, focus[current] - 1));
+document.getElementById("s-next").onclick = () => setFocus(current, Math.min(STEPS[current].length, focus[current] + 1));
+document.getElementById("s-all").onclick = () => setFocus(current, 0);
+
 // ======================= RINGS =======================
-const RINGS = [[40, 14, 0, 0xd9534f], [80, 20, 6, 0xf0883e], [120, 12, -5, 0xe5c84a], [160, 18, 2, 0x7cc46b]];
+const RINGS = [[40, 14, 0, 0xd9534f], [80, 20, 6, 0xf0883e], [120, 12, -5, 0xe0b93a], [160, 18, 2, 0x6fb860]];
 const ringScene = makeScene();
 const solidR = new Set();
 const key = (x, y, z) => x + "," + y + "," + z;
 (function buildRings() {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 80), new THREE.MeshLambertMaterial({ color: COL.ground }));
-  ground.rotation.x = -Math.PI / 2; ground.position.set(90, 0, 0); ringScene.add(ground);
-  const grid = new THREE.GridHelper(260, 65, COL.grid, COL.grid); grid.position.set(90, 0.01, 0); ringScene.add(grid);
+  floor(ringScene, 260, 80, 90);
   for (const [x, y, z, col] of RINGS) {
     const blocks = [];
     for (let dy = -4; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) {
@@ -308,7 +489,7 @@ let ringLayer = null;
 function ringReset() {
   R.pos = [0, 12, 0.5]; R.vel = [1.3, -0.05, 0]; R.yaw = -90; R.pitch = 0;
   R.tick = 0; R.rocketLeft = 0; R.lastRocket = -100; R.rockets = 0; R.ring = 0; R.miss = []; R.trail = [R.pos];
-  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.after = 0; R.last = R.pos;
+  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.crash = false; R.after = 0; R.wait = 0;
   redrawRings();
 }
 function centre(i) { const r = RINGS[i]; return [r[0] + 0.5, r[1] + 0.5, r[2] + 0.5]; }
@@ -348,53 +529,75 @@ function ringTick(cost) {
   R.pos = n; R.tick++;
   if (R.tick % 2 === 0) R.trail.push(R.pos);
 }
-let botMesh;
 function redrawRings() {
-  if (ringLayer) ringScene.remove(ringLayer);
+  drop(ringScene, ringLayer);
   ringLayer = new THREE.Group();
-  const showOthers = document.getElementById("r-others").checked;
-  if (R.plan && showOthers) {
+  const F = focus.rings, others = document.getElementById("r-others").checked;
+  const showGrey = F ? F === 2 || F === 4 : others, showHits = F ? F === 2 || F === 3 : others;
+  const showPick = !F || F === 4, showTrail = !F || F === 1 || F === 5;
+  const L = [];
+  if (R.plan && showGrey) {
     const all = R.plan.all, n = all.length;
-    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 70))) ringLayer.add(polyline(all[i].pts, COL.slate, 0.45));
-    for (let i = 0; i < R.plan.hits.length; i += Math.max(1, Math.floor(R.plan.hits.length / 40))) ringLayer.add(polyline(R.plan.hits[i], COL.coral, 0.7));
+    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 70))) ringLayer.add(polyline(all[i].pts, P.slate, F === 4 ? 0.22 : 0.45));
   }
-  if (R.plan && R.plan.best) ringLayer.add(tube(R.plan.best.pts.map(p => [p[0], p[1] + 0.3, p[2]]), COL.pick, 0.14));
-  if (R.trail.length > 1) ringLayer.add(tube(R.trail.map(p => [p[0], p[1] + 0.3, p[2]]), 0xb9c6d8, 0.09));
-  for (const p of R.rocketMarks) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: 0xff8a2a, wireframe: true }));
+  if (R.plan && showHits) {
+    const hits = R.plan.hits;
+    for (let i = 0; i < hits.length; i += Math.max(1, Math.floor(hits.length / 40))) ringLayer.add(polyline(hits[i], P.coral, F === 3 ? 0.95 : 0.7));
+    if (hits.length && F === 3) { const h = hits.reduce((a, b) => b.length > a.length ? b : a); const e = h[h.length - 1]; L.push({ at: [e[0], e[1] + 0.6, e[2]], text: "would hit a block here", kind: "hit" }); }
+  }
+  if (R.plan && F === 2 && R.plan.all.length) {
+    const far = R.plan.all.reduce((a, b) => b.pts[b.pts.length - 1][0] > a.pts[a.pts.length - 1][0] ? b : a), e = far.pts[far.pts.length - 1];
+    L.push({ at: [e[0], e[1] + 0.6, e[2]], text: `${R.plan.all.length + R.plan.hits.length} tries, 2 s ahead each` });
+  }
+  if (R.plan && R.plan.best && showPick) {
+    const pts = R.plan.best.pts;
+    ringLayer.add(tube(pts.map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.14));
+    const e = pts[pts.length - 1];
+    L.push({ at: [e[0], e[1] + 0.9, e[2]], text: `chosen: pitch ${R.plan.best.pitch.toFixed(0)}°, ${R.plan.best.fire ? "rocket now" : "no rocket"}`, kind: "pick" });
+  }
+  if (R.trail.length > 1 && showTrail) ringLayer.add(tube(R.trail.map(p => [p[0], p[1] + 0.3, p[2]]), P.trail, 0.09));
+  if (!F || F === 5) for (const p of R.rocketMarks) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
     m.position.set(p[0], p[1] + 0.3, p[2]); ringLayer.add(m);
   }
   RINGS.forEach((r, i) => {
-    const c = centre(i);
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 8), new THREE.MeshBasicMaterial({ color: i < R.ring ? 0x5b6b80 : COL.cyan }));
+    const c = centre(i), next = i === R.ring;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(next && F === 1 ? 0.6 : 0.35, 12, 8), new THREE.MeshBasicMaterial({ color: i < R.ring ? P.passed : P.cyan }));
     m.position.set(c[0], c[1], c[2]); ringLayer.add(m);
+    const missed = i < R.miss.length ? `, missed by ${R.miss[i]}` : next ? ", next" : "";
+    L.push({ at: [c[0], c[1] + 5, c[2]], text: `Ring ${i + 1}${missed}`, kind: next ? "target" : "" });
   });
   // the glider: a body and two wings, turned by yaw and pitch
   const bot = new THREE.Group();
-  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: 0x3f7fd0 })));
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: 0x9aa7b8 }));
+  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: P.body })));
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: P.wing }));
   wing.position.z = -0.2; bot.add(wing);
   bot.position.set(R.pos[0], R.pos[1] + 0.3, R.pos[2]);
   bot.rotation.order = "YXZ"; bot.rotation.y = -R.yaw * RAD; bot.rotation.x = R.pitch * RAD;
   ringLayer.add(bot);
+  L.push({ at: [R.pos[0], R.pos[1] + 1.6, R.pos[2]], text: R.crash ? "bot, crashed" : "bot" });
+  labels.rings = L;
   ringScene.add(ringLayer);
   const sp = Math.hypot(R.vel[0], R.vel[1], R.vel[2]);
   document.getElementById("rd-tick").textContent = R.tick;
   document.getElementById("rd-speed").textContent = sp.toFixed(2);
   document.getElementById("rd-h").textContent = R.pos[1].toFixed(1);
-  document.getElementById("rd-ring").textContent = Math.min(R.ring + 1, RINGS.length) + " / " + RINGS.length + (R.ring >= RINGS.length ? " пройдены" : "");
-  document.getElementById("rd-miss").textContent = R.miss.length ? R.miss.join("  ") : "-";
+  document.getElementById("rd-ring").textContent = R.crash ? "crashed" : R.ring >= RINGS.length ? "all passed" : (R.ring + 1) + " of " + RINGS.length;
+  document.getElementById("rd-miss").textContent = R.miss.length ? R.miss.join(", ") : "none yet";
   document.getElementById("rd-rk").textContent = R.rockets;
-  document.getElementById("rd-cand").textContent = R.plan ? (R.plan.all.length + R.plan.hits.length) + " / " + R.plan.hits.length : "0 / 0";
+  document.getElementById("rd-cand").textContent = R.plan ? (R.plan.all.length + R.plan.hits.length) + ", " + R.plan.hits.length : "0, 0";
   document.getElementById("rd-pick").textContent = R.plan && R.plan.best
-    ? R.plan.best.pitch.toFixed(0) + "°, " + (R.plan.best.fire ? "да" : "нет") : "-";
-  if (R.crash) document.getElementById("rd-ring").textContent = "врезался";
+    ? R.plan.best.pitch.toFixed(0) + "°, " + (R.plan.best.fire ? "yes" : "no") : "none yet";
+}
+function ringLegend() {
+  setLegend([[P.pick, "chosen glide, next 2 s"], [P.slate, "tries it dropped"], [P.coral, "would hit"], [P.trail, "flown so far"], [P.rocket, "rocket fired"], [P.cyan, "ring centre"]]);
 }
 
 // ======================= MAZE =======================
-// A glass hall 120 x 20 x 24 blocks, open at x = 0, three walls with one 7x7 gap each: low left, high right, middle.
+// A glass hall 120 x 20 x 24 blocks, open at x = 0, three walls with one 7x7 gap each: low left, high right, middle
 const H = { x0: 0, x1: 120, y1: 20, z0: -12, z1: 12 };
 const WALLS = [[30, 0xd9534f, -10, 2], [60, 0x4f7fd9, 4, 12], [90, 0x5fb35f, -3, 7]]; // x, colour, gap z from, gap y from
+const GAP_NAMES = ["low gap, left", "high gap, right", "middle gap"];
 const mazeScene = makeScene();
 function solidM(x, y, z) {
   if (y < 1) return true;
@@ -406,13 +609,13 @@ function solidM(x, y, z) {
   return false;
 }
 (function buildMaze() {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 80), new THREE.MeshLambertMaterial({ color: COL.ground }));
-  ground.rotation.x = -Math.PI / 2; ground.position.set(55, 0, 0); mazeScene.add(ground);
+  floor(mazeScene, 200, 80, 56);
   const glass = new THREE.Mesh(new THREE.BoxGeometry(H.x1 - H.x0, H.y1 - 1, H.z1 - H.z0 + 1),
-    new THREE.MeshBasicMaterial({ color: 0x9fd6ff, transparent: true, opacity: 0.06, depthWrite: false }));
+    new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
   glass.position.set((H.x0 + H.x1) / 2, (H.y1 + 1) / 2, 0.5); mazeScene.add(glass);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ color: 0x6fa8c8, transparent: true, opacity: 0.5 }));
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 }));
   edges.position.copy(glass.position); mazeScene.add(edges);
+  themed.push([glass, p => { glass.material.color.setHex(p.glass); glass.material.opacity = p.glassOp; edges.material.color.setHex(p.glassEdge); }]);
   for (const [wx, col] of WALLS) {
     const blocks = [];
     for (let x = wx; x <= wx + 1; x++) for (let y = 1; y < H.y1; y++) for (let z = H.z0; z <= H.z1; z++)
@@ -486,73 +689,121 @@ function airRoute() {
   }
   return { seen, path, corners };
 }
-let mazeLayer = null, closedMesh = null, mazeRun = null, mazeAnim = 0;
+let mazeLayer = null, closedMesh = null, mazeRun = null, mazeAnim = 0, seenMesh = null;
+// run the search once; the cells it looked at go into one mesh that the animation reveals by count
+function search() {
+  mazeRun = airRoute();
+  mazeAnim = reduced ? 1e9 : 0;
+  if (seenMesh) { mazeScene.remove(seenMesh); seenMesh.geometry.dispose(); seenMesh.material.dispose(); }
+  const n = mazeRun.seen.length;
+  seenMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL * 0.5, CELL * 0.5, CELL * 0.5),
+    new THREE.MeshBasicMaterial({ color: P.seen, transparent: true, opacity: 0.35 }), Math.max(1, n));
+  const m = new THREE.Matrix4();
+  mazeRun.seen.forEach((c, i) => { m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); seenMesh.setMatrixAt(i, m); });
+  seenMesh.count = 0;
+  mazeScene.add(seenMesh);
+}
 (function closedCells() {
   const list = []; let total = 0;
   for (let cx = cellOf(H.x0); cx <= cellOf(H.x1); cx++) for (let cy = 0; cy < cellOf(H.y1); cy++) for (let cz = cellOf(H.z0); cz <= cellOf(H.z1); cz++) {
     total++; if (!cellOpen(cx, cy, cz)) list.push([cx, cy, cz]);
   }
   const geo = new THREE.BoxGeometry(CELL * 0.96, CELL * 0.96, CELL * 0.96);
-  const mat = new THREE.MeshBasicMaterial({ color: COL.coral, transparent: true, opacity: 0.11, depthWrite: false });
+  const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
   closedMesh = new THREE.InstancedMesh(geo, mat, list.length);
   const m = new THREE.Matrix4();
   list.forEach((c, i) => { m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); closedMesh.setMatrixAt(i, m); });
   mazeScene.add(closedMesh);
+  themed.push([closedMesh, p => { mat.color.setHex(p.coral); mat.opacity = p.closedOp; }]);
   document.getElementById("md-cells").textContent = total;
   document.getElementById("md-closed").textContent = list.length;
 })();
 function drawMaze() {
-  if (mazeLayer) mazeScene.remove(mazeLayer);
+  drop(mazeScene, mazeLayer);
   mazeLayer = new THREE.Group();
-  closedMesh.visible = document.getElementById("m-closed").checked;
+  const F = focus.maze;
+  closedMesh.visible = F ? F === 1 || F === 3 : document.getElementById("m-closed").checked;
+  const showSeen = F ? F === 2 : document.getElementById("m-seen").checked;
+  const showChain = !F || F === 3 || F === 4, showCorners = !F || F >= 4;
   const mk = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), new THREE.MeshBasicMaterial({ color: col })); m.position.set(...p); return m; };
-  mazeLayer.add(mk(START, 0xffffff, 0.8)); mazeLayer.add(mk(GOAL, COL.cyan, 0.8));
+  mazeLayer.add(mk(START, P.start, 0.8)); mazeLayer.add(mk(GOAL, P.cyan, 0.8));
+  const L = [{ at: [START[0], START[1] + 2.5, START[2]], text: "start" }, { at: [GOAL[0], GOAL[1] + 2.5, GOAL[2]], text: "goal", kind: "target" }];
+  WALLS.forEach(([wx, , gz], i) => L.push({ at: [wx + 1, H.y1 + 1, gz + 3.5], text: `wall ${i + 1}: ${GAP_NAMES[i]}` }));
+  const searched = mazeRun && mazeAnim >= mazeRun.seen.length;
   if (mazeRun) {
     const shown = Math.min(mazeRun.seen.length, Math.floor(mazeAnim));
-    if (document.getElementById("m-seen").checked && shown) {
-      const geo = new THREE.BoxGeometry(CELL * 0.5, CELL * 0.5, CELL * 0.5);
-      const im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x8fa3bf, transparent: true, opacity: 0.35 }), shown);
-      const m = new THREE.Matrix4();
-      for (let i = 0; i < shown; i++) { const c = mazeRun.seen[i]; m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); im.setMatrixAt(i, m); }
-      mazeLayer.add(im);
-    }
-    if (shown >= mazeRun.seen.length && mazeRun.path) {
-      const geo = new THREE.BoxGeometry(CELL * 0.92, CELL * 0.92, CELL * 0.92);
-      for (const p of mazeRun.path.slice(0, -1)) {
-        const b = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: COL.cyan }));
-        b.position.set(...p); mazeLayer.add(b);
+    seenMesh.count = shown;
+    seenMesh.visible = showSeen && shown > 0;
+    if (searched && mazeRun.path) {
+      if (showChain) {
+        const geo = new THREE.BoxGeometry(CELL * 0.92, CELL * 0.92, CELL * 0.92);
+        for (const p of mazeRun.path.slice(0, -1)) {
+          const b = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: P.cyan, transparent: F === 4, opacity: F === 4 ? 0.35 : 1 }));
+          b.position.set(...p); mazeLayer.add(b);
+        }
       }
-      mazeLayer.add(tube([START, ...mazeRun.corners], COL.pick, 0.25));
-      for (const c of mazeRun.corners) mazeLayer.add(mk(c, COL.pick, 0.6));
+      if (showCorners) {
+        mazeLayer.add(tube([START, ...mazeRun.corners], P.pick, 0.25));
+        mazeRun.corners.forEach((c, i) => {
+          mazeLayer.add(mk(c, P.pick, 0.6));
+          if (F >= 4 && i < mazeRun.corners.length - 1) L.push({ at: [c[0], c[1] + 1.6, c[2]], text: `corner ${i + 1}`, kind: "pick" });
+        });
+      }
     }
     document.getElementById("md-seen").textContent = shown;
-    document.getElementById("md-path").textContent = shown >= mazeRun.seen.length ? (mazeRun.path ? mazeRun.path.length : "нет пути") : "ищет…";
-    document.getElementById("md-corners").textContent = shown >= mazeRun.seen.length && mazeRun.corners ? mazeRun.corners.length : "-";
+    document.getElementById("md-path").textContent = searched ? (mazeRun.path ? mazeRun.path.length : "no way found") : "searching";
+    document.getElementById("md-corners").textContent = searched && mazeRun.corners ? mazeRun.corners.length : searched ? "none" : "searching";
   } else {
+    if (seenMesh) seenMesh.visible = false;
     document.getElementById("md-seen").textContent = 0;
-    document.getElementById("md-path").textContent = "-";
-    document.getElementById("md-corners").textContent = "-";
+    document.getElementById("md-path").textContent = "not searched";
+    document.getElementById("md-corners").textContent = "not searched";
   }
+  labels.maze = L;
   mazeScene.add(mazeLayer);
 }
+function mazeLegend() {
+  setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners kept after straightening"]]);
+}
 
-// ======================= tabs, loop =======================
+// ======================= theme, tabs, loop =======================
+function applyTheme() {
+  const dark = themeChoice === "dark" || (themeChoice === "auto" && !sysLight.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  P = PALETTES[dark ? "dark" : "light"];
+  for (const [, apply] of themed) apply(P);
+  if (seenMesh) seenMesh.material.color.setHex(P.seen);
+  document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeChoice === themeChoice));
+  if (current === "rings") ringLegend(); else mazeLegend();
+  redrawRings(); drawMaze();
+}
+document.querySelectorAll("[data-theme-choice]").forEach(b => b.onclick = () => {
+  themeChoice = b.dataset.themeChoice; localStorage.setItem("theme", themeChoice); applyTheme();
+});
+sysLight.addEventListener("change", () => { if (themeChoice === "auto") applyTheme(); });
+
 let current = "rings", running = true, acc = 0;
-const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function setRunning(on) { running = on; document.getElementById("r-run").textContent = on ? "Pause" : "Play"; }
 function show(which) {
   current = which;
   for (const id of ["rings", "maze"]) {
     document.getElementById("tab-" + id).setAttribute("aria-selected", id === which);
-    for (const part of ["side-", "ctl-", "read-"]) document.getElementById(part + id).hidden = id !== which;
+    for (const part of ["steps-", "ctl-", "read-"]) document.getElementById(part + id).hidden = id !== which;
   }
   if (which === "rings") {
-    camera.position.set(-22, 30, 46); controls.target.set(60, 14, 0);
-    setLegend([["#ff6fb0", "выбранный путь на 2 с"], ["#7c89aa", "отброшенные варианты"], ["#ef6b5b", "врезались бы"], ["#b9c6d8", "пролетел"], ["#ff8a2a", "ракета"], ["#4cc8e0", "центр кольца"]]);
+    camera.position.set(-18, 50, 98); controls.target.set(88, 12, 0);
+    ringLegend();
   } else {
     camera.position.set(-40, 60, 70); controls.target.set(55, 8, 0);
-    setLegend([["#ef6b5b", "закрытый кубик 4×4×4"], ["#8fa3bf", "куда смотрел поиск"], ["#4cc8e0", "найденная цепочка"], ["#ff6fb0", "опорные точки после спрямления"]]);
+    mazeLegend();
+    if (!mazeRun) search();
     drawMaze();
   }
+  // a narrow view sees less across: step back so the whole course stays in frame
+  const aspect = view.clientWidth / Math.max(1, view.clientHeight);
+  if (aspect < 1.2) camera.position.sub(controls.target).multiplyScalar(1.2 / Math.max(0.5, aspect)).add(controls.target);
+  showCaption();
   controls.update();
 }
 document.getElementById("tab-rings").onclick = () => show("rings");
@@ -561,12 +812,12 @@ const cost = () => +document.getElementById("r-cost").value;
 const speed = () => +document.getElementById("r-speed").value;
 document.getElementById("r-cost").oninput = e => { document.getElementById("r-cost-out").textContent = e.target.value; };
 document.getElementById("r-speed").oninput = e => { document.getElementById("r-speed-out").textContent = e.target.value + "×"; };
-document.getElementById("r-run").onclick = e => { running = !running; e.target.textContent = running ? "Пауза" : "Пуск"; };
-document.getElementById("r-step").onclick = () => { ringTick(cost()); ringTick(cost()); redrawRings(); };
+document.getElementById("r-run").onclick = () => setRunning(!running);
+document.getElementById("r-step").onclick = () => { setRunning(false); ringTick(cost()); ringTick(cost()); redrawRings(); };
 document.getElementById("r-reset").onclick = () => { ringReset(); };
 document.getElementById("r-others").onchange = () => redrawRings();
-document.getElementById("m-search").onclick = () => { mazeRun = airRoute(); mazeAnim = reduced ? 1e9 : 0; drawMaze(); };
-document.getElementById("m-reset").onclick = () => { mazeRun = null; drawMaze(); };
+document.getElementById("m-search").onclick = () => { search(); if (focus.maze === 1) setFocus("maze", 2); else drawMaze(); };
+document.getElementById("m-reset").onclick = () => { mazeRun = null; setFocus("maze", 0); };
 document.getElementById("m-closed").onchange = () => drawMaze();
 document.getElementById("m-seen").onchange = () => drawMaze();
 
@@ -579,17 +830,20 @@ function loop(t) {
     while (acc >= 1 && n < 6) { ringTick(cost()); acc -= 1; n++; }
     if (n) redrawRings();
   }
-  if (current === "rings" && R.done && running) { R.wait = (R.wait || 0) + dt; if (R.wait > 3) { R.wait = 0; ringReset(); } }
+  if (current === "rings" && R.done && running) { R.wait += dt; if (R.wait > 3) ringReset(); }
   if (current === "maze" && mazeRun && mazeAnim < mazeRun.seen.length) { mazeAnim += dt * 900; drawMaze(); }
   controls.update();
   renderer.render(current === "rings" ? ringScene : mazeScene, camera);
+  placeLabels();
   requestAnimationFrame(loop);
 }
 ringReset();
 // open at rest on a moment worth seeing: a few seconds into the flight, a plan drawn
 for (let i = 0; i < 70; i++) ringTick(12);
-redrawRings();
-show("rings");
+applyTheme();
+show(QS.get("scene") === "maze" ? "maze" : "rings");
+const qStep = +QS.get("step");
+if (qStep >= 1 && qStep <= STEPS[current].length) setFocus(current, qStep);
 resize();
 requestAnimationFrame(loop);
 </script>
