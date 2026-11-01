@@ -174,7 +174,7 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
         <li><button aria-pressed="false"><b>Search</b><span>A* from the start through open cells to the goal, 26 neighbours per cell. Climbing costs more than descending, since height is bought with rockets, and a cell next to a wall costs more, since elytra need room</span></button></li>
         <li><button aria-pressed="false"><b>Chain</b><span>The cells the search settled on, from the start to the goal</span></button></li>
         <li><button aria-pressed="false"><b>Straighten</b><span>Only the corners a straight flight cannot cut are kept, at most 28 blocks apart</span></button></li>
-        <li><button aria-pressed="false"><b>Fly</b><span>The solver flies the corners like rings, with its own tries</span></button></li>
+        <li><button aria-pressed="false"><b>Fly</b><span>A flight is searched in the cells around the chain with the same physics: a look held 8 ticks, with or without a rocket, room kept from the walls. The rockets (orange) go where the climb to the high gap needs them</span></button></li>
       </ol>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="s-prev">Back</button>
@@ -231,8 +231,11 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
         <dt>Cells the search looked at</dt><dd id="md-seen">0</dd>
         <dt>Route, cells</dt><dd id="md-path">not searched</dd>
         <dt>Corners kept</dt><dd id="md-corners">not searched</dd>
+        <dt>Flight planned, ticks</dt><dd id="md-flight">not searched</dd>
+        <dt>Rockets in it</dt><dd id="md-rockets">not searched</dd>
+        <dt>Planned in</dt><dd id="md-ms">not searched</dd>
       </dl>
-      <p class="note">In the game the search finds this route. Flying it is another matter: the search does not know how steeply elytra can climb, so on the way from the low gap up to the high one the bot runs out of speed. Teaching the search that is the next step</p>
+      <p class="facts">The corners alone were not enough: flown as rings, the bot ran out of speed on the climb from the low gap to the high one. On the test bench, ten flights each, a pass being a landing inside the hall: the corners as rings <b>5</b> of 10, the planned flight <b>9</b> of 10, and <b>10</b> of 10 at the survival rocket price</p>
     </section>
 
     <section class="facts">
@@ -695,10 +698,108 @@ function airRoute() {
   }
   return { seen, path, corners };
 }
+// AirPlan: a flight inside the corridor (open cells within two of the chain), through the same
+// physics. A move holds one look for 8 ticks, turned no faster than the bot turns, with or without a
+// fresh rocket; a move that comes within a block of a wall or leaves the corridor is out. Weighted A*
+// on ticks plus a rocket's price, the heuristic being the way left at top speed and the rockets the
+// energy (height + v^2/0.16) cannot do without.
+function planFlight(run) {
+  if (!run.path) return null;
+  const t0 = performance.now();
+  const chain = run.path.map(p => p.map(cellOf));
+  const inC = new Set();
+  for (const [x, y, z] of chain)
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++)
+      if (cellOpen(x + dx, y + dy, z + dz)) inC.add(ckey(x + dx, y + dy, z + dz));
+  const g = chain[chain.length - 1];
+  inC.add(ckey(...g));
+  const dist = new Map([[ckey(...g), 0]]), q = [[0, g]];
+  while (q.length) {
+    let bi = 0; for (let i = 1; i < q.length; i++) if (q[i][0] < q[bi][0]) bi = i;
+    const [d, c] = q.splice(bi, 1)[0];
+    if (d > dist.get(ckey(...c))) continue;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (!dx && !dy && !dz) continue;
+      const n = [c[0] + dx, c[1] + dy, c[2] + dz], k = ckey(...n);
+      if (!inC.has(k)) continue;
+      const nd = d + CELL * Math.hypot(dx, dy, dz);
+      if (nd < (dist.get(k) ?? Infinity)) { dist.set(k, nd); q.push([nd, n]); }
+    }
+  }
+  const toGo = p => dist.get(ckey(cellOf(p[0]), cellOf(p[1]), cellOf(p[2]))) ?? -1;
+  const hits = (a, b, m) => {
+    for (let x = Math.floor(Math.min(a[0], b[0]) - 0.3 - m); x <= Math.floor(Math.max(a[0], b[0]) + 0.3 + m); x++)
+      for (let y = Math.floor(Math.min(a[1], b[1]) - m); y <= Math.floor(Math.max(a[1], b[1]) + 0.6 + m); y++)
+        for (let z = Math.floor(Math.min(a[2], b[2]) - 0.3 - m); z <= Math.floor(Math.max(a[2], b[2]) + 0.3 + m); z++)
+          if (solidM(x, y, z)) return true;
+    return false;
+  };
+  const RT = 8, PULL = 25, W = 2.5, M = 1.0;
+  const heading = (v, f) => Math.hypot(v[0], v[2]) > 0.05 ? Math.atan2(-v[0], v[2]) / RAD : f;
+  const wrap = a => ((a + 540) % 360) - 180;
+  const h = (p, v, rl) => {
+    const d0 = toGo(p); if (d0 < 0) return Infinity;
+    const d = Math.max(d0, Math.hypot(GOAL[0] - p[0], GOAL[1] - p[1], GOAL[2] - p[2]));
+    const short = GOAL[1] + 0.099 * d - (p[1] + (v[0] ** 2 + v[1] ** 2 + v[2] ** 2) / 0.16 + rl * 2.25);
+    return d / 1.8 + (short > 0 ? Math.ceil(short / 45) * RT : 0);
+  };
+  const key = s => [Math.floor(s.p[0] / 2), Math.floor(s.p[1] / 2), Math.floor(s.p[2] / 2), Math.round(heading(s.v, s.yaw) / 20),
+    Math.floor(Math.hypot(...s.v) / 0.3), s.rl > 0 ? 1 : 0].join(",");
+  const s0 = { p: START, v: [1.3, -0.05, 0], yaw: -90, pitch: 0, rl: 0, g: 0, rockets: 0, parent: null, act: null };
+  s0.f = W * h(s0.p, s0.v, 0);
+  // a binary heap on f
+  const heap = [s0], push = x => { heap.push(x); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j].f <= heap[i].f) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l].f < heap[m].f) m = l; if (r < heap.length && heap[r].f < heap[m].f) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
+  const seen = new Map();
+  let end = null, expanded = 0;
+  while (heap.length && expanded < 20000 && !end) {
+    const s = pop();
+    const k = key(s);
+    if ((seen.get(k) ?? Infinity) <= s.g) continue;
+    seen.set(k, s.g); expanded++;
+    const hd = heading(s.v, s.yaw);
+    for (let fire = 0; fire <= (s.rl === 0 ? 1 : 0) && !end; fire++)
+      for (const dy of [-50, -25, -10, 0, 10, 25, 50]) for (const tp of [-50, -30, -15, 0, 15, 35]) {
+        let p = s.p, v = s.v, yaw = s.yaw, pitch = s.pitch, rl = fire ? PULL : s.rl, ok = true, done = false, t = 0;
+        for (; t < 8; t++) {
+          yaw += Math.max(-25, Math.min(25, wrap(hd + dy - yaw)));
+          pitch += Math.max(-15, Math.min(15, tp - pitch));
+          v = step(v, yaw, pitch, rl > 0); if (rl > 0) rl--;
+          const n = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+          if (toGo(n) < 0 || hits(p, n, s === s0 ? 0 : M)) { ok = false; break; }
+          p = n;
+          if (Math.hypot(GOAL[0] - p[0], GOAL[1] - p[1], GOAL[2] - p[2]) < 5) { done = true; t++; break; }
+        }
+        if (!ok) continue;
+        const c = { p, v, yaw, pitch, rl, g: s.g + t + (fire ? RT : 0), rockets: s.rockets + fire, parent: s, act: { ty: hd + dy, tp, fire, t } };
+        if (done) { end = c; break; }
+        c.f = c.g + W * h(p, v, rl);
+        if ((seen.get(key(c)) ?? Infinity) > c.g) push(c);
+      }
+  }
+  if (!end) return { pts: null, ms: performance.now() - t0, expanded };
+  // the moves, flown again tick by tick
+  const acts = []; for (let n = end; n.parent; n = n.parent) acts.unshift(n.act);
+  const pts = [{ p: START, fire: false }];
+  let p = START, v = s0.v, yaw = -90, pitch = 0, rl = 0;
+  for (const a of acts) {
+    if (a.fire) rl = PULL;
+    for (let t = 0; t < a.t; t++) {
+      yaw += Math.max(-25, Math.min(25, wrap(a.ty - yaw)));
+      pitch += Math.max(-15, Math.min(15, a.tp - pitch));
+      v = step(v, yaw, pitch, rl > 0); if (rl > 0) rl--;
+      p = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+      pts.push({ p, fire: a.fire && t === 0 });
+    }
+  }
+  return { pts, rockets: end.rockets, ms: performance.now() - t0, expanded };
+}
+
 let mazeLayer = null, closedMesh = null, mazeRun = null, mazeAnim = 0, seenMesh = null;
 // run the search once; the cells it looked at go into one mesh that the animation reveals by count
 function search() {
   mazeRun = airRoute();
+  mazeRun.flight = planFlight(mazeRun);
   mazeAnim = reduced ? 1e9 : 0;
   if (seenMesh) { mazeScene.remove(seenMesh); seenMesh.geometry.dispose(); seenMesh.material.dispose(); }
   const n = mazeRun.seen.length;
@@ -730,7 +831,8 @@ function drawMaze() {
   const F = focus.maze;
   closedMesh.visible = F ? F === 1 || F === 3 : document.getElementById("m-closed").checked;
   const showSeen = F ? F === 2 : document.getElementById("m-seen").checked;
-  const showChain = !F || F === 3 || F === 4, showCorners = !F || F >= 4;
+  const hasFlight = mazeRun && mazeRun.flight && mazeRun.flight.pts;
+  const showChain = !F || F === 3 || F === 4, showCorners = F === 4 || (!F && !hasFlight), showFlight = (!F || F === 5) && hasFlight;
   const mk = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), new THREE.MeshBasicMaterial({ color: col })); m.position.set(...p); return m; };
   mazeLayer.add(mk(START, P.start, 0.8)); mazeLayer.add(mk(GOAL, P.cyan, 0.8));
   const L = [{ at: [START[0], START[1] + 2.5, START[2]], text: "start" }, { at: [GOAL[0], GOAL[1] + 2.5, GOAL[2]], text: "goal", kind: "target" }];
@@ -755,21 +857,36 @@ function drawMaze() {
           if (F >= 4 && i < mazeRun.corners.length - 1) L.push({ at: [c[0], c[1] + 1.6, c[2]], text: `corner ${i + 1}`, kind: "pick" });
         });
       }
+      if (showFlight) {
+        const fp = mazeRun.flight.pts;
+        mazeLayer.add(tube(fp.filter((_, i) => i % 2 === 0).map(s => [s.p[0], s.p[1] + 0.3, s.p[2]]), P.pick, 0.22));
+        let n = 0;
+        for (const s of fp) if (s.fire) {
+          const b = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
+          b.position.set(s.p[0], s.p[1] + 0.3, s.p[2]); mazeLayer.add(b);
+          if (F === 5) L.push({ at: [s.p[0], s.p[1] + 1.8, s.p[2]], text: `rocket ${++n}`, kind: "hit" });
+        }
+      }
     }
     document.getElementById("md-seen").textContent = shown;
     document.getElementById("md-path").textContent = searched ? (mazeRun.path ? mazeRun.path.length : "no way found") : "searching";
     document.getElementById("md-corners").textContent = searched && mazeRun.corners ? mazeRun.corners.length : searched ? "none" : "searching";
+    const fl = mazeRun.flight;
+    document.getElementById("md-flight").textContent = !searched ? "searching" : fl && fl.pts ? fl.pts.length - 1 : "none found";
+    document.getElementById("md-rockets").textContent = !searched ? "searching" : fl && fl.pts ? fl.rockets : "none";
+    document.getElementById("md-ms").textContent = !searched ? "searching" : fl ? `${Math.round(fl.ms)} ms, ${fl.expanded} states` : "none";
   } else {
     if (seenMesh) seenMesh.visible = false;
     document.getElementById("md-seen").textContent = 0;
     document.getElementById("md-path").textContent = "not searched";
     document.getElementById("md-corners").textContent = "not searched";
+    for (const id of ["md-flight", "md-rockets", "md-ms"]) document.getElementById(id).textContent = "not searched";
   }
   labels.maze = L;
   mazeScene.add(mazeLayer);
 }
 function mazeLegend() {
-  setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners kept after straightening"]]);
+  setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners, then the flight planned"], [P.rocket, "rocket in the plan"]]);
 }
 
 // ======================= theme, tabs, loop =======================
