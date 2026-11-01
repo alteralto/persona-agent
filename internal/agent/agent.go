@@ -227,6 +227,7 @@ type replyJob struct {
 	places   string // known places near the bot, for "where is ..." questions
 	creative bool
 	takeoff  bool // a line about going up: told its earlier ones, remembered among them
+	avoid    []string // stems the reply must not say (a riddle's own place): one rewrite if it does
 	at       time.Time
 }
 
@@ -746,6 +747,21 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			fcancel()
 			if err == nil {
 				a.log.Info("critic: rewrote moving promise", "was", text)
+				text = cleanReply(fixed)
+			}
+		}
+		// Critic: a riddle that names its place is no riddle; one rewrite, told the word.
+		if w, named := namesPlace(text, job.avoid); named {
+			fixer := a.llm
+			if a.smart != nil {
+				fixer, model = a.smart, "smart-fix"
+			}
+			note[len(note)-1].Content += fmt.Sprintf(riddleFix, w)
+			fctx, fcancel := context.WithTimeout(ctx, 10*time.Second)
+			fixed, err := fixer.Chat(fctx, note, 120)
+			fcancel()
+			if err == nil {
+				a.log.Info("critic: rewrote a riddle naming its place", "was", text)
 				text = cleanReply(fixed)
 			}
 		}

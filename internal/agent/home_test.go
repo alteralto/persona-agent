@@ -248,3 +248,22 @@ func TestSimHeatSlackAtTheEdge(t *testing.T) {
 	r.w.AddPlayer("Alex", 30, 0) // 30 off: well inside warm
 	r.waitFor("warmer", 3*time.Second, func() bool { return strings.Contains(r.log.String(), `msg="riddle: heat"`) })
 }
+
+// A game on and nobody to follow: no scouting while it lasts. With no companion around it walked off
+// exploring in the middle of a treasure hunt it was calling "warmer, colder" for (01.11, the bench).
+func TestSimNoScoutingDuringAGame(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(cfg *agent.Config) {
+		cfg.Explore = true
+		cfg.ExploreAfter = 10 * time.Millisecond
+		gamePlaces(t, map[string]any{"desc": "вода, озеро или река", "x": 60, "z": 10})(cfg)
+	})
+	r.w.AddPlayer("Alex", 5, 0)
+	r.ready()
+	r.w.Say("Alex", "Пыхтун, загадай загадку!")
+	r.waitFor("riddle asked", 3*time.Second, func() bool { return strings.Contains(r.log.String(), "game: start") })
+	at := len(r.log.String())
+	time.Sleep(2 * time.Second)
+	if after := r.log.String()[at:]; strings.Contains(after, "explore: walking") {
+		t.Fatal("went scouting during the riddle")
+	}
+}

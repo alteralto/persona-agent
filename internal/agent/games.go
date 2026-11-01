@@ -196,7 +196,11 @@ func (a *Agent) startGame(ctx context.Context, kind, asker string) bool {
 			"Скажи, чтобы ждали сигнала. Одна-две фразы до 200 символов, в характере.", who, pl.Desc, dir, d, signal)
 		a.goTo(ctx, pl.X, pl.Z, "race: to the finish")
 	}
-	a.enqueue(replyJob{prompt: prompt, history: slices.Clone(a.history), at: time.Now()})
+	job := replyJob{prompt: prompt, history: slices.Clone(a.history), at: time.Now()}
+	if kind == gameRiddle {
+		job.avoid = placeStems(pl.Desc)
+	}
+	a.enqueue(job)
 	return true
 }
 
@@ -255,7 +259,7 @@ func (a *Agent) hideTreasure(ctx context.Context, g *game, pos explore.Pos) {
 		dir := explore.Direction(o, px, pz)
 		a.log.Info("treasure: search on", "dropped", g.dropped, "place", g.place.Desc, "not_searching", len(g.ahead))
 		a.enqueue(replyJob{prompt: riddlePrompt(g, strings.Join(spokenNames(g.with), ", "), int(math.Round(d/10)*10), dir),
-			history: slices.Clone(a.history), at: time.Now()})
+			history: slices.Clone(a.history), avoid: placeStems(g.place.Desc), at: time.Now()})
 	}
 }
 

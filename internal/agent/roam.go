@@ -350,6 +350,15 @@ func (a *Agent) roam(ctx context.Context) {
 	if !a.cfg.Explore {
 		return
 	}
+	// Lingering (a game it judges, a riddle it has to see solved) holds the scouting too, not only
+	// the companion: with nobody to follow it walked off exploring in the middle of a treasure hunt
+	// it was calling "warmer, colder" for (01.11, the test bench).
+	if time.Now().Before(a.lingerUntil) {
+		if a.trip != nil {
+			a.cancelTrip(ctx)
+		}
+		return
+	}
 
 	if a.trip == nil {
 		if time.Since(a.lastCommand) < a.cfg.ExploreAfter {
