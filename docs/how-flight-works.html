@@ -9,7 +9,8 @@
 // Theme before first paint: the stored choice, or the system's when it is "auto"
 (function () {
   var q = new URLSearchParams(location.search).get("theme");
-  var c = /^(auto|dark|light)$/.test(q || "") ? q : localStorage.getItem("theme") || "auto";
+  var saved = null; try { saved = localStorage.getItem("theme"); } catch (e) {}
+  var c = /^(auto|dark|light)$/.test(q || "") ? q : saved || "auto";
   var dark = c === "dark" || (c === "auto" && !matchMedia("(prefers-color-scheme: light)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 })();
@@ -279,7 +280,12 @@ const hex = c => "#" + c.toString(16).padStart(6, "0");
 const sysLight = matchMedia("(prefers-color-scheme: light)");
 // a link may carry ?theme=, ?scene= and ?step= to open on one view
 const QS = new URLSearchParams(location.search);
-let themeChoice = /^(auto|dark|light)$/.test(QS.get("theme") || "") ? QS.get("theme") : localStorage.getItem("theme") || "auto";
+// a sandboxed frame may refuse storage; the choice then lasts until the page is closed
+const store = {
+  get() { try { return localStorage.getItem("theme"); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem("theme", v); } catch (e) {} }
+};
+let themeChoice = /^(auto|dark|light)$/.test(QS.get("theme") || "") ? QS.get("theme") : store.get() || "auto";
 
 // ---------- shared 3D setup ----------
 const view = document.getElementById("view");
@@ -778,7 +784,7 @@ function applyTheme() {
   redrawRings(); drawMaze();
 }
 document.querySelectorAll("[data-theme-choice]").forEach(b => b.onclick = () => {
-  themeChoice = b.dataset.themeChoice; localStorage.setItem("theme", themeChoice); applyTheme();
+  themeChoice = b.dataset.themeChoice; store.set(themeChoice); applyTheme();
 });
 sysLight.addEventListener("change", () => { if (themeChoice === "auto") applyTheme(); });
 
