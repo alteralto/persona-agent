@@ -64,6 +64,14 @@ GigaChat and the mod. The source is [docs/pyhtun.bpmn](docs/pyhtun.bpmn) (opens 
 
 ![Pyhtun as a BPMN process](docs/pyhtun-bpmn.png)
 
+### How the bot flies through rings and finds gaps
+
+[docs/how-flight-works.html](docs/how-flight-works.html) is an interactive 3D page (in Russian; open it in
+a browser). Both scenes run the mod's own formulas in the page. In one, the bot flies four rings and
+you watch it fly ~250 candidate glides two seconds ahead every other tick and keep one. In the
+other, a hall is cut into 4-block cubes and a search finds the way through the gaps. The flight
+code itself lives in the UnionClef fork: tungsten `elytra/ElytraPhysics`, `ElytraSolver`, `AirRoute`.
+
 ## What the character does
 
 | Skill | How |

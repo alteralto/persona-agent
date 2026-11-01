@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как бот пролетает кольца</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Unbounded:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* VibeCADing dark: navy paper, blue buttons, pink only for what the machine chose (the glide it
+     picked, the corners it kept). Cyan marks targets, coral what would hit, orange the rockets.
+     Layout: 3D viewport left, a narrow instrument column right. */
+  --bg: #0b1330;
+  --panel: #0f1a40;
+  --line: #26325c;
+  --ink: #e6ecfa;
+  --muted: #9aa6c4;
+  --blue: #17357e;
+  --chalk: #eaf0ff;
+  --pink: #ff6fb0;
+  --cyan: #4cc8e0;
+  --coral: #ef6b5b;
+  --font-display: "Unbounded", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+::selection { background: rgba(255, 111, 176, .35); color: var(--ink); }
+html { scrollbar-color: #33415a var(--panel); }
+body { caret-color: var(--pink); }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); display: flex; flex-direction: column; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 14px 20px 10px; border-bottom: 1px solid var(--line); }
+h1 { font: 500 19px/1.2 var(--font-display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 70ch; }
+.tabs { display: flex; gap: 6px; margin-left: auto; }
+.tabs button { font: 500 14px var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 6px 14px; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--chalk); background: var(--blue); border-color: #3a5bb0; }
+.tabs button:focus-visible, .ctl button:focus-visible, .ctl input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
+#view { position: relative; min-height: 360px; }
+#view canvas { display: block; width: 100%; height: 100%; }
+.hint { position: absolute; left: 14px; bottom: 12px; color: var(--muted); font-size: 12px; background: rgba(11, 19, 48, .8); padding: 4px 8px; border-radius: 3px; pointer-events: none; }
+.legend { position: absolute; left: 14px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); background: rgba(11, 19, 48, .8); padding: 6px 10px; border-radius: 3px; max-width: calc(100% - 28px); }
+.legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 16px 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+aside h2 { font: 600 15px/1.3 var(--font-body); color: var(--ink); margin: 0 0 8px; text-wrap: balance; }
+ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+ol.steps li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+ol.steps b { display: block; color: var(--ink); font-weight: 600; }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ctl button { font: 500 14px var(--font-body); color: var(--ink); background: #16224f; border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; cursor: pointer; }
+.ctl button:hover, .tabs button:hover { border-color: #3a5bb0; }
+.ctl button.primary { background: var(--blue); color: var(--chalk); border-color: #3a5bb0; }
+.ctl label { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; font-size: 13px; color: var(--muted); }
+.ctl label input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--pink); }
+.ctl label output { color: var(--ink); font-variant-numeric: tabular-nums; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); width: 100%; }
+.check input { accent-color: var(--cyan); }
+dl.read { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+dl.read dt { color: var(--muted); }
+dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.note { font-size: 13px; color: #f3c6bf; background: rgba(239, 107, 91, .1); border-radius: 3px; padding: 8px 12px; margin: 12px 0 0; }
+.facts { font-size: 13px; color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.scene[hidden] { display: none; }
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 58vh auto; }
+  aside { border-left: 0; border-top: 1px solid var(--line); }
+  .tabs { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Как бот пролетает кольца и ищет проёмы</h1>
+  <p>Обе сцены считаются прямо здесь, по тем же формулам, что в моде: физика элитр, перебор вариантов, поиск по кубикам</p>
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-rings" aria-selected="true">Кольца</button>
+    <button role="tab" id="tab-maze" aria-selected="false">Лабиринт</button>
+  </nav>
+</header>
+<main>
+  <div id="view">
+    <div class="legend" id="legend"></div>
+    <div class="hint">Мышь: вращать, колесо: приблизить, правая кнопка: сдвинуть</div>
+  </div>
+  <aside>
+    <section class="scene" id="side-rings">
+      <h2>Что происходит</h2>
+      <ol class="steps">
+        <li><b>Цель</b>Боту дали центры колец. Сами рамки он не ищет: для него это просто блоки</li>
+        <li><b>Перебор</b>Каждые 2 тика около 250 вариантов: наклон, поворот, ракета сейчас или нет. Каждый пролетается на 40 тиков (2 с) вперёд по модели физики</li>
+        <li><b>Отсев</b>Вариант, где тело 0.6×0.6 задевает блок, выкидывается (красные)</li>
+        <li><b>Оценка</b>Штраф за то, как далеко путь проходит от центра кольца, за нехватку скорости и высоты, за каждую ракету. Лучший (розовый) летится два тика, потом всё заново</li>
+        <li><b>Засчитано</b>Когда бот пересёк плоскость кольца. Промах: насколько далеко от центра он её пересёк</li>
+      </ol>
+    </section>
+    <section class="scene" id="side-maze" hidden>
+      <h2>Что происходит</h2>
+      <ol class="steps">
+        <li><b>Сетка</b>Зал режется на кубики 4×4×4 блока. Кубик, где есть хоть один блок, закрыт (красные)</li>
+        <li><b>Поиск A*</b>От старта по открытым кубикам к цели, 26 соседей у каждого. Подъём дороже снижения (высоту покупают ракетами), кубик у стены дороже (элитрам нужен простор)</li>
+        <li><b>Спрямление</b>Из цепочки кубиков остаются только углы, которые прямой полёт не срежет, не дальше 28 блоков друг от друга</li>
+        <li><b>Полёт</b>Углы решатель проходит как кольца, со своим перебором вариантов</li>
+      </ol>
+    </section>
+
+    <section class="scene ctl" id="ctl-rings">
+      <button class="primary" id="r-run">Пауза</button>
+      <button id="r-step">Шаг: 2 тика</button>
+      <button id="r-reset">Сначала</button>
+      <label for="r-cost">Цена ракеты, блоков продвижения <output id="r-cost-out">12</output>
+        <input type="range" id="r-cost" min="0" max="60" step="1" value="12"></label>
+      <label for="r-speed">Скорость показа <output id="r-speed-out">1×</output>
+        <input type="range" id="r-speed" min="0.25" max="2" step="0.25" value="1"></label>
+      <span class="check"><input type="checkbox" id="r-others" checked><label for="r-others" style="display:inline">Показывать отброшенные варианты</label></span>
+    </section>
+    <section class="scene ctl" id="ctl-maze" hidden>
+      <button class="primary" id="m-search">Искать путь</button>
+      <button id="m-reset">Очистить</button>
+      <span class="check"><input type="checkbox" id="m-closed" checked><label for="m-closed" style="display:inline">Показывать закрытые кубики</label></span>
+      <span class="check"><input type="checkbox" id="m-seen" checked><label for="m-seen" style="display:inline">Показывать, куда смотрел поиск</label></span>
+    </section>
+
+    <section class="scene" id="read-rings">
+      <h2>Приборы</h2>
+      <dl class="read">
+        <dt>Тик</dt><dd id="rd-tick">0</dd>
+        <dt>Скорость, блок/тик</dt><dd id="rd-speed">0</dd>
+        <dt>Высота</dt><dd id="rd-h">0</dd>
+        <dt>Кольцо</dt><dd id="rd-ring">1 / 4</dd>
+        <dt>Промахи, блоков</dt><dd id="rd-miss">-</dd>
+        <dt>Ракет сожжено</dt><dd id="rd-rk">0</dd>
+        <dt>Вариантов: всего / врезались</dt><dd id="rd-cand">0 / 0</dd>
+        <dt>Выбрано: наклон, ракета</dt><dd id="rd-pick">-</dd>
+      </dl>
+    </section>
+    <section class="scene" id="read-maze" hidden>
+      <h2>Приборы</h2>
+      <dl class="read">
+        <dt>Кубиков в зале</dt><dd id="md-cells">0</dd>
+        <dt>Закрытых</dt><dd id="md-closed">0</dd>
+        <dt>Поиск просмотрел</dt><dd id="md-seen">0</dd>
+        <dt>Путь, кубиков</dt><dd id="md-path">-</dd>
+        <dt>Опорных точек</dt><dd id="md-corners">-</dd>
+      </dl>
+      <p class="note">В игре поиск этот путь находит. Долететь от нижнего проёма к верхнему бот пока не может: поиск не знает, насколько круто способны набирать высоту элитры, и на подъёме бот теряет скорость. Это следующий шаг</p>
+    </section>
+
+    <section class="facts">
+      <h2>Модель физики</h2>
+      Шаг полёта повторяет игру: планирование, потом тяга ракеты. Проверка на <b>848</b> тиках настоящего полёта: скорость расходится с игрой на <b>0.0000</b> блока/тик в планировании и <b>0.0001</b> под ракетой (медиана)
+    </section>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+// ---------- physics: ElytraPhysics.step, line for line ----------
+const RAD = Math.PI / 180;
+function look(yaw, pitch) {
+  const p = pitch * RAD, y = -yaw * RAD;
+  return [Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
+}
+function step(v, yaw, pitch, rocket) {
+  const [lx, ly, lz] = look(yaw, pitch);
+  let [mx, my, mz] = v;
+  const pr = pitch * RAD, lh = Math.hypot(lx, lz), flat = Math.hypot(mx, mz), cp2 = Math.cos(pr) ** 2;
+  my += -0.08 + cp2 * 0.06;
+  if (my < 0 && lh > 0) { const lift = my * -0.1 * cp2; my += lift; mx += lx * lift / lh; mz += lz * lift / lh; }
+  if (pr < 0 && lh > 0) { const c = flat * -Math.sin(pr) * 0.04; my += c * 3.2; mx -= lx * c / lh; mz -= lz * c / lh; }
+  if (lh > 0) { mx += (lx / lh * flat - mx) * 0.1; mz += (lz / lh * flat - mz) * 0.1; }
+  mx *= 0.99; my *= 0.98; mz *= 0.99;
+  if (rocket) { mx += lx * 0.1 + (lx * 1.5 - mx) * 0.5; my += ly * 0.1 + (ly * 1.5 - my) * 0.5; mz += lz * 0.1 + (lz * 1.5 - mz) * 0.5; }
+  return [mx, my, mz];
+}
+
+// ---------- shared 3D setup ----------
+const view = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+view.appendChild(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+const COL = { pick: 0xff6fb0, cyan: 0x4cc8e0, coral: 0xef6b5b, slate: 0x7c89aa, ground: 0x111d48, grid: 0x26325c };
+
+function makeScene() {
+  const s = new THREE.Scene();
+  s.background = new THREE.Color(0x0b1330);
+  s.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a2230, 0.9));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(60, 120, 40); s.add(sun);
+  return s;
+}
+function voxels(scene, list, color, opacity) {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity });
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
+  const m = new THREE.Matrix4();
+  list.forEach((b, i) => { m.makeTranslation(b[0] + 0.5, b[1] + 0.5, b[2] + 0.5); mesh.setMatrixAt(i, m); });
+  mesh.count = list.length;
+  scene.add(mesh);
+  return mesh;
+}
+function polyline(points, color, opacity = 1) {
+  const g = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+  return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
+}
+function tube(points, color, r = 0.18) {
+  if (points.length < 2) return new THREE.Object3D();
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, points.length * 2), r, 6, false),
+    new THREE.MeshBasicMaterial({ color }));
+}
+function setLegend(items) {
+  document.getElementById("legend").innerHTML =
+    items.map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("");
+}
+
+// ======================= RINGS =======================
+const RINGS = [[40, 14, 0, 0xd9534f], [80, 20, 6, 0xf0883e], [120, 12, -5, 0xe5c84a], [160, 18, 2, 0x7cc46b]];
+const ringScene = makeScene();
+const solidR = new Set();
+const key = (x, y, z) => x + "," + y + "," + z;
+(function buildRings() {
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 80), new THREE.MeshLambertMaterial({ color: COL.ground }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(90, 0, 0); ringScene.add(ground);
+  const grid = new THREE.GridHelper(260, 65, COL.grid, COL.grid); grid.position.set(90, 0.01, 0); ringScene.add(grid);
+  for (const [x, y, z, col] of RINGS) {
+    const blocks = [];
+    for (let dy = -4; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) {
+      if (Math.abs(dy) <= 3 && Math.abs(dz) <= 3) continue;
+      blocks.push([x, y + dy, z + dz]); solidR.add(key(x, y + dy, z + dz));
+    }
+    voxels(ringScene, blocks, col, 1);
+  }
+})();
+function blockedR(p) {
+  if (p[1] < 0) return true;
+  for (let x = Math.floor(p[0] - 0.3); x <= Math.floor(p[0] + 0.3); x++)
+    for (let y = Math.floor(p[1]); y <= Math.floor(p[1] + 0.6); y++)
+      for (let z = Math.floor(p[2] - 0.3); z <= Math.floor(p[2] + 0.3); z++)
+        if (solidR.has(key(x, y, z))) return true;
+  return false;
+}
+function predict(pos, vel, yaw, pitch, ticks, pull) {
+  const pts = [pos]; let p = pos, v = vel;
+  for (let i = 0; i < ticks; i++) {
+    v = step(v, yaw, pitch, i < pull);
+    const n = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+    if (blockedR(n)) return { pts, hit: true };
+    p = n; pts.push(p);
+  }
+  return { pts, hit: false };
+}
+function closest(pts, c) {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = [pts[i - 1][0], pts[i - 1][1] + 0.3, pts[i - 1][2]], b = pts[i];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2;
+    let t = l2 < 1e-9 ? 0 : ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / l2;
+    t = Math.max(0, Math.min(1, t));
+    best = Math.min(best, Math.hypot(a[0] + ab[0] * t - c[0], a[1] + ab[1] * t - c[1], a[2] + ab[2] * t - c[2]));
+  }
+  return best;
+}
+// ElytraSolver: coarse pass, then a finer pass around the winner
+function solve(pos, vel, rocketLeft, goal, through, cost, mayFire) {
+  const direct = Math.atan2(-(goal[0] - pos[0]), goal[2] - pos[2]) / RAD;
+  const d0 = Math.hypot(goal[0] - pos[0], goal[2] - pos[2]);
+  const eWant = goal[1] + 1.5 * 1.5 / 0.16;
+  let best = null, latest = null; const all = [], hits = [];
+  function fly(yaw, pitch, fire, dy) {
+    pitch = Math.max(-89, Math.min(89, pitch));
+    const r = predict(pos, vel, yaw, pitch, 40, fire ? 20 : rocketLeft);
+    if (r.hit) { hits.push(r.pts); if (!latest || r.pts.length > latest.pts.length) latest = { yaw, pitch, fire, pts: r.pts, score: -1e9 }; return; }
+    const e = r.pts[r.pts.length - 1], pe = r.pts[r.pts.length - 2] || pos;
+    const ev = [e[0] - pe[0], e[1] - pe[1], e[2] - pe[2]];
+    const progress = d0 - Math.hypot(goal[0] - e[0], goal[2] - e[2]);
+    const deficit = Math.max(0, eWant - (e[1] + (ev[0] ** 2 + ev[1] ** 2 + ev[2] ** 2) / 0.16));
+    const score = progress - 0.3 * Math.abs(goal[1] - e[1]) - 0.8 * deficit - (fire ? cost : 0)
+      - Math.abs(dy) * 0.02 - (through ? 8 * closest(r.pts, through) : 0);
+    const c = { yaw, pitch, fire, pts: r.pts, score }; all.push(c);
+    if (!best || score > best.score) best = c;
+  }
+  for (let fire = 0; fire <= (mayFire && rocketLeft === 0 ? 1 : 0); fire++)
+    for (const dy of [0, -10, 10, -25, 25, -50, 50])
+      for (let pitch = -50; pitch <= 40; pitch += 6) fly(direct + dy, pitch, fire === 1, dy);
+  if (best) {
+    const w = best;
+    for (let dp = -4; dp <= 4; dp += 2) for (const dy of [-5, 0, 5]) if (dp || dy) fly(w.yaw + dy, w.pitch + dp, w.fire, dy);
+  }
+  return { best: best || latest, all, hits, cornered: !best };
+}
+
+const R = {};
+let ringLayer = null;
+function ringReset() {
+  R.pos = [0, 12, 0.5]; R.vel = [1.3, -0.05, 0]; R.yaw = -90; R.pitch = 0;
+  R.tick = 0; R.rocketLeft = 0; R.lastRocket = -100; R.rockets = 0; R.ring = 0; R.miss = []; R.trail = [R.pos];
+  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.after = 0; R.last = R.pos;
+  redrawRings();
+}
+function centre(i) { const r = RINGS[i]; return [r[0] + 0.5, r[1] + 0.5, r[2] + 0.5]; }
+function ringTick(cost) {
+  if (R.done) return;
+  if (R.tick - R.planTick >= 2) {
+    const i = R.ring;
+    const through = i < RINGS.length ? centre(i) : null;
+    const goal = i + 1 < RINGS.length ? centre(i + 1) : (i < RINGS.length ? [centre(i)[0] + 40, centre(i)[1], centre(i)[2]] : [R.pos[0] + 60, R.pos[1], R.pos[2]]);
+    const since = R.tick - R.lastRocket;
+    R.plan = solve(R.pos, R.vel, Math.max(0, 20 - since), goal, through, cost, since >= 20);
+    R.planTick = R.tick;
+    let fire = R.plan.best && R.plan.best.fire && (!R.plan.cornered || since >= 40);
+    if (!fire && Math.hypot(R.vel[0], R.vel[2]) < 0.9 && since >= 20) fire = true; // a stalling glide gets a rocket
+    if (fire) { R.rocketLeft = 20; R.lastRocket = R.tick; R.rockets++; R.rocketMarks.push(R.pos); }
+  }
+  const b = R.plan && R.plan.best;
+  if (b) {
+    let dyaw = ((b.yaw - R.yaw + 540) % 360) - 180;
+    R.yaw += Math.max(-25, Math.min(25, dyaw));
+    R.pitch += Math.max(-15, Math.min(15, b.pitch - R.pitch));
+  }
+  R.vel = step(R.vel, R.yaw, R.pitch, R.rocketLeft > 0);
+  if (R.rocketLeft > 0) R.rocketLeft--;
+  const n = [R.pos[0] + R.vel[0], R.pos[1] + R.vel[1], R.pos[2] + R.vel[2]];
+  if (blockedR(n)) { R.done = true; R.crash = true; return; }
+  // ring crossed? its plane is x = const
+  if (R.ring < RINGS.length) {
+    const c = centre(R.ring);
+    if (R.pos[0] < c[0] && n[0] >= c[0]) {
+      const t = (c[0] - R.pos[0]) / (n[0] - R.pos[0]);
+      const y = R.pos[1] + 0.3 + (n[1] - R.pos[1]) * t, z = R.pos[2] + (n[2] - R.pos[2]) * t;
+      R.miss.push(Math.max(Math.abs(y - c[1]), Math.abs(z - c[2])).toFixed(1));
+      R.ring++;
+    }
+  } else if (++R.after > 60) R.done = true;
+  R.pos = n; R.tick++;
+  if (R.tick % 2 === 0) R.trail.push(R.pos);
+}
+let botMesh;
+function redrawRings() {
+  if (ringLayer) ringScene.remove(ringLayer);
+  ringLayer = new THREE.Group();
+  const showOthers = document.getElementById("r-others").checked;
+  if (R.plan && showOthers) {
+    const all = R.plan.all, n = all.length;
+    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 70))) ringLayer.add(polyline(all[i].pts, COL.slate, 0.45));
+    for (let i = 0; i < R.plan.hits.length; i += Math.max(1, Math.floor(R.plan.hits.length / 40))) ringLayer.add(polyline(R.plan.hits[i], COL.coral, 0.7));
+  }
+  if (R.plan && R.plan.best) ringLayer.add(tube(R.plan.best.pts.map(p => [p[0], p[1] + 0.3, p[2]]), COL.pick, 0.14));
+  if (R.trail.length > 1) ringLayer.add(tube(R.trail.map(p => [p[0], p[1] + 0.3, p[2]]), 0xb9c6d8, 0.09));
+  for (const p of R.rocketMarks) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: 0xff8a2a, wireframe: true }));
+    m.position.set(p[0], p[1] + 0.3, p[2]); ringLayer.add(m);
+  }
+  RINGS.forEach((r, i) => {
+    const c = centre(i);
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 8), new THREE.MeshBasicMaterial({ color: i < R.ring ? 0x5b6b80 : COL.cyan }));
+    m.position.set(c[0], c[1], c[2]); ringLayer.add(m);
+  });
+  // the glider: a body and two wings, turned by yaw and pitch
+  const bot = new THREE.Group();
+  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: 0x3f7fd0 })));
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: 0x9aa7b8 }));
+  wing.position.z = -0.2; bot.add(wing);
+  bot.position.set(R.pos[0], R.pos[1] + 0.3, R.pos[2]);
+  bot.rotation.order = "YXZ"; bot.rotation.y = -R.yaw * RAD; bot.rotation.x = R.pitch * RAD;
+  ringLayer.add(bot);
+  ringScene.add(ringLayer);
+  const sp = Math.hypot(R.vel[0], R.vel[1], R.vel[2]);
+  document.getElementById("rd-tick").textContent = R.tick;
+  document.getElementById("rd-speed").textContent = sp.toFixed(2);
+  document.getElementById("rd-h").textContent = R.pos[1].toFixed(1);
+  document.getElementById("rd-ring").textContent = Math.min(R.ring + 1, RINGS.length) + " / " + RINGS.length + (R.ring >= RINGS.length ? " пройдены" : "");
+  document.getElementById("rd-miss").textContent = R.miss.length ? R.miss.join("  ") : "-";
+  document.getElementById("rd-rk").textContent = R.rockets;
+  document.getElementById("rd-cand").textContent = R.plan ? (R.plan.all.length + R.plan.hits.length) + " / " + R.plan.hits.length : "0 / 0";
+  document.getElementById("rd-pick").textContent = R.plan && R.plan.best
+    ? R.plan.best.pitch.toFixed(0) + "°, " + (R.plan.best.fire ? "да" : "нет") : "-";
+  if (R.crash) document.getElementById("rd-ring").textContent = "врезался";
+}
+
+// ======================= MAZE =======================
+// A glass hall 120 x 20 x 24 blocks, open at x = 0, three walls with one 7x7 gap each: low left, high right, middle.
+const H = { x0: 0, x1: 120, y1: 20, z0: -12, z1: 12 };
+const WALLS = [[30, 0xd9534f, -10, 2], [60, 0x4f7fd9, 4, 12], [90, 0x5fb35f, -3, 7]]; // x, colour, gap z from, gap y from
+const mazeScene = makeScene();
+function solidM(x, y, z) {
+  if (y < 1) return true;
+  if (x < H.x0) return false;                       // outside, before the way in
+  if (x > H.x1 || y >= H.y1 || z < H.z0 || z > H.z1) return true;
+  for (const [wx, , gz, gy] of WALLS) {
+    if (x === wx || x === wx + 1) return !(z >= gz && z < gz + 7 && y >= gy && y < gy + 7);
+  }
+  return false;
+}
+(function buildMaze() {
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 80), new THREE.MeshLambertMaterial({ color: COL.ground }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(55, 0, 0); mazeScene.add(ground);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(H.x1 - H.x0, H.y1 - 1, H.z1 - H.z0 + 1),
+    new THREE.MeshBasicMaterial({ color: 0x9fd6ff, transparent: true, opacity: 0.06, depthWrite: false }));
+  glass.position.set((H.x0 + H.x1) / 2, (H.y1 + 1) / 2, 0.5); mazeScene.add(glass);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ color: 0x6fa8c8, transparent: true, opacity: 0.5 }));
+  edges.position.copy(glass.position); mazeScene.add(edges);
+  for (const [wx, col] of WALLS) {
+    const blocks = [];
+    for (let x = wx; x <= wx + 1; x++) for (let y = 1; y < H.y1; y++) for (let z = H.z0; z <= H.z1; z++)
+      if (solidM(x, y, z)) blocks.push([x, y, z]);
+    voxels(mazeScene, blocks, col, 1);
+  }
+})();
+const CELL = 4;
+const START = [-14, 10, 0.5], GOAL = [114, 4, 0.5];
+const cellOf = v => Math.floor(v / CELL);
+const ckey = (x, y, z) => x + "|" + y + "|" + z;
+const openCache = new Map();
+function cellOpen(cx, cy, cz) {
+  const k = ckey(cx, cy, cz);
+  if (openCache.has(k)) return openCache.get(k);
+  let open = true;
+  for (let x = cx * CELL; x < cx * CELL + CELL && open; x++)
+    for (let y = cy * CELL; y < cy * CELL + CELL && open; y++)
+      for (let z = cz * CELL; z < cz * CELL + CELL && open; z++)
+        if (solidM(x, y, z)) open = false;
+  openCache.set(k, open); return open;
+}
+// AirRoute.find: A* on the 26 neighbours, climb dearer than descent, a cell next to a closed one dearer
+function airRoute() {
+  const s = START.map(cellOf), g = GOAL.map(cellOf);
+  const yMin = 0, yMax = cellOf(H.y1 + 8), xMin = cellOf(-24), xMax = cellOf(H.x1 + 8), zMin = cellOf(-30), zMax = cellOf(30);
+  const h = (x, y, z) => Math.hypot(x - g[0], y - g[1], z - g[2]);
+  const crowd = (x, y, z) => [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].filter(d => !cellOpen(x + d[0], y + d[1], z + d[2])).length * 0.8;
+  const best = new Map(), seen = [];
+  const open = [{ x: s[0], y: s[1], z: s[2], g: 0, f: h(...s), parent: null }];
+  best.set(ckey(...s), 0);
+  let found = null;
+  while (open.length && seen.length < 20000) {
+    let bi = 0; for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
+    const n = open.splice(bi, 1)[0];
+    if (n.g > (best.get(ckey(n.x, n.y, n.z)) ?? Infinity)) continue;
+    seen.push([n.x, n.y, n.z]);
+    if (n.x === g[0] && n.y === g[1] && n.z === g[2]) { found = n; break; }
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (!dx && !dy && !dz) continue;
+      const x = n.x + dx, y = n.y + dy, z = n.z + dz;
+      if (y < yMin || y > yMax || x < xMin || x > xMax || z < zMin || z > zMax) continue;
+      const isGoal = x === g[0] && y === g[1] && z === g[2];
+      if (!isGoal && !cellOpen(x, y, z)) continue;
+      if ((dx && !cellOpen(n.x + dx, n.y, n.z)) || (dy && !cellOpen(n.x, n.y + dy, n.z)) || (dz && !cellOpen(n.x, n.y, n.z + dz))) {
+        if ((dx !== 0) + (dy !== 0) + (dz !== 0) > 1) continue;   // no cutting a closed cell's corner
+      }
+      const cost = Math.hypot(dx, dy, dz) + (dy > 0 ? 2 : dy < 0 ? -0.3 : 0) + crowd(x, y, z);
+      const ng = n.g + cost, k = ckey(x, y, z);
+      if (ng < (best.get(k) ?? Infinity)) { best.set(k, ng); open.push({ x, y, z, g: ng, f: ng + h(x, y, z), parent: n }); }
+    }
+  }
+  if (!found) return { seen, path: null, corners: null };
+  const path = []; for (let n = found; n; n = n.parent) path.unshift([n.x * CELL + 2, n.y * CELL + 2, n.z * CELL + 2]);
+  path[path.length - 1] = GOAL;
+  // string pulling, a leg at most 28 blocks, 1.5 blocks of room along it
+  const clear = (a, b) => {
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], n = Math.max(1, Math.ceil(Math.hypot(...d)));
+    for (let i = 0; i <= n; i++) {
+      const p = [a[0] + d[0] * i / n, a[1] + d[1] * i / n, a[2] + d[2] * i / n];
+      for (const ox of [-1.5, 0, 1.5]) for (const oy of [-1, 0.25, 1.5]) for (const oz of [-1.5, 0, 1.5])
+        if (solidM(Math.floor(p[0] + ox), Math.floor(p[1] + oy), Math.floor(p[2] + oz))) return false;
+    }
+    return true;
+  };
+  const corners = []; let from = START, i = 0;
+  while (i < path.length) {
+    let far = i;
+    for (let j = path.length - 1; j > i; j--) if (Math.hypot(path[j][0] - from[0], path[j][1] - from[1], path[j][2] - from[2]) <= 28 && clear(from, path[j])) { far = j; break; }
+    corners.push(path[far]); from = path[far]; i = far + 1;
+  }
+  return { seen, path, corners };
+}
+let mazeLayer = null, closedMesh = null, mazeRun = null, mazeAnim = 0;
+(function closedCells() {
+  const list = []; let total = 0;
+  for (let cx = cellOf(H.x0); cx <= cellOf(H.x1); cx++) for (let cy = 0; cy < cellOf(H.y1); cy++) for (let cz = cellOf(H.z0); cz <= cellOf(H.z1); cz++) {
+    total++; if (!cellOpen(cx, cy, cz)) list.push([cx, cy, cz]);
+  }
+  const geo = new THREE.BoxGeometry(CELL * 0.96, CELL * 0.96, CELL * 0.96);
+  const mat = new THREE.MeshBasicMaterial({ color: COL.coral, transparent: true, opacity: 0.11, depthWrite: false });
+  closedMesh = new THREE.InstancedMesh(geo, mat, list.length);
+  const m = new THREE.Matrix4();
+  list.forEach((c, i) => { m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); closedMesh.setMatrixAt(i, m); });
+  mazeScene.add(closedMesh);
+  document.getElementById("md-cells").textContent = total;
+  document.getElementById("md-closed").textContent = list.length;
+})();
+function drawMaze() {
+  if (mazeLayer) mazeScene.remove(mazeLayer);
+  mazeLayer = new THREE.Group();
+  closedMesh.visible = document.getElementById("m-closed").checked;
+  const mk = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), new THREE.MeshBasicMaterial({ color: col })); m.position.set(...p); return m; };
+  mazeLayer.add(mk(START, 0xffffff, 0.8)); mazeLayer.add(mk(GOAL, COL.cyan, 0.8));
+  if (mazeRun) {
+    const shown = Math.min(mazeRun.seen.length, Math.floor(mazeAnim));
+    if (document.getElementById("m-seen").checked && shown) {
+      const geo = new THREE.BoxGeometry(CELL * 0.5, CELL * 0.5, CELL * 0.5);
+      const im = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x8fa3bf, transparent: true, opacity: 0.35 }), shown);
+      const m = new THREE.Matrix4();
+      for (let i = 0; i < shown; i++) { const c = mazeRun.seen[i]; m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); im.setMatrixAt(i, m); }
+      mazeLayer.add(im);
+    }
+    if (shown >= mazeRun.seen.length && mazeRun.path) {
+      const geo = new THREE.BoxGeometry(CELL * 0.92, CELL * 0.92, CELL * 0.92);
+      for (const p of mazeRun.path.slice(0, -1)) {
+        const b = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: COL.cyan }));
+        b.position.set(...p); mazeLayer.add(b);
+      }
+      mazeLayer.add(tube([START, ...mazeRun.corners], COL.pick, 0.25));
+      for (const c of mazeRun.corners) mazeLayer.add(mk(c, COL.pick, 0.6));
+    }
+    document.getElementById("md-seen").textContent = shown;
+    document.getElementById("md-path").textContent = shown >= mazeRun.seen.length ? (mazeRun.path ? mazeRun.path.length : "нет пути") : "ищет…";
+    document.getElementById("md-corners").textContent = shown >= mazeRun.seen.length && mazeRun.corners ? mazeRun.corners.length : "-";
+  } else {
+    document.getElementById("md-seen").textContent = 0;
+    document.getElementById("md-path").textContent = "-";
+    document.getElementById("md-corners").textContent = "-";
+  }
+  mazeScene.add(mazeLayer);
+}
+
+// ======================= tabs, loop =======================
+let current = "rings", running = true, acc = 0;
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function show(which) {
+  current = which;
+  for (const id of ["rings", "maze"]) {
+    document.getElementById("tab-" + id).setAttribute("aria-selected", id === which);
+    for (const part of ["side-", "ctl-", "read-"]) document.getElementById(part + id).hidden = id !== which;
+  }
+  if (which === "rings") {
+    camera.position.set(-22, 30, 46); controls.target.set(60, 14, 0);
+    setLegend([["#ff6fb0", "выбранный путь на 2 с"], ["#7c89aa", "отброшенные варианты"], ["#ef6b5b", "врезались бы"], ["#b9c6d8", "пролетел"], ["#ff8a2a", "ракета"], ["#4cc8e0", "центр кольца"]]);
+  } else {
+    camera.position.set(-40, 60, 70); controls.target.set(55, 8, 0);
+    setLegend([["#ef6b5b", "закрытый кубик 4×4×4"], ["#8fa3bf", "куда смотрел поиск"], ["#4cc8e0", "найденная цепочка"], ["#ff6fb0", "опорные точки после спрямления"]]);
+    drawMaze();
+  }
+  controls.update();
+}
+document.getElementById("tab-rings").onclick = () => show("rings");
+document.getElementById("tab-maze").onclick = () => show("maze");
+const cost = () => +document.getElementById("r-cost").value;
+const speed = () => +document.getElementById("r-speed").value;
+document.getElementById("r-cost").oninput = e => { document.getElementById("r-cost-out").textContent = e.target.value; };
+document.getElementById("r-speed").oninput = e => { document.getElementById("r-speed-out").textContent = e.target.value + "×"; };
+document.getElementById("r-run").onclick = e => { running = !running; e.target.textContent = running ? "Пауза" : "Пуск"; };
+document.getElementById("r-step").onclick = () => { ringTick(cost()); ringTick(cost()); redrawRings(); };
+document.getElementById("r-reset").onclick = () => { ringReset(); };
+document.getElementById("r-others").onchange = () => redrawRings();
+document.getElementById("m-search").onclick = () => { mazeRun = airRoute(); mazeAnim = reduced ? 1e9 : 0; drawMaze(); };
+document.getElementById("m-reset").onclick = () => { mazeRun = null; drawMaze(); };
+document.getElementById("m-closed").onchange = () => drawMaze();
+document.getElementById("m-seen").onchange = () => drawMaze();
+
+let lastT = performance.now();
+function loop(t) {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  if (current === "rings" && running && !R.done) {
+    acc += dt * 20 * speed();                       // 20 ticks a second, as the game
+    let n = 0;
+    while (acc >= 1 && n < 6) { ringTick(cost()); acc -= 1; n++; }
+    if (n) redrawRings();
+  }
+  if (current === "rings" && R.done && running) { R.wait = (R.wait || 0) + dt; if (R.wait > 3) { R.wait = 0; ringReset(); } }
+  if (current === "maze" && mazeRun && mazeAnim < mazeRun.seen.length) { mazeAnim += dt * 900; drawMaze(); }
+  controls.update();
+  renderer.render(current === "rings" ? ringScene : mazeScene, camera);
+  requestAnimationFrame(loop);
+}
+ringReset();
+// open at rest on a moment worth seeing: a few seconds into the flight, a plan drawn
+for (let i = 0; i < 70; i++) ringTick(12);
+redrawRings();
+show("rings");
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
