@@ -77,6 +77,7 @@ type World struct {
 	items     map[string]int // what creativeGive handed out, by item id
 
 	flyPhase  string // "idle", "takeoff", "flying", "done", "failed"
+	solver    bool   // flySettings: the elytra solver on, for this client only
 	flyTarget [2]float64
 	flyReason string
 	manualAt  time.Time // the player last steered the bot by hand
@@ -421,7 +422,7 @@ func (w *World) Handler() http.Handler {
 var forkTools = map[string]bool{"flyFollow": true, "setBuildPolicy": true, "readSigns": true, "creativeGive": true,
 	"tidyInventory": true, "flyTo": true, "flyStatus": true, "flyStop": true, "swimToShore": true, "swimStatus": true, "flyRoute": true,
 	"salute": true, "saluteStatus": true, "hoverTo": true, "hoverStatus": true, "dropItem": true,
-	"setFavoriteItem": true}
+	"setFavoriteItem": true, "flySettings": true}
 
 func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 	if forkTools[tool] && !w.opt.Fork {
@@ -637,6 +638,11 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 			"target": fmt.Sprintf("%d,%d", int(w.hoverTarget[0]), int(w.hoverTarget[1]))}, false
 	case "flyStatus":
 		return map[string]any{"phase": w.flyPhase, "reason": w.flyReason, "rocketsUsed": w.rockets}, false
+	case "flySettings":
+		if v, ok := args["solver"].(bool); ok {
+			w.solver = v
+		}
+		return map[string]any{"solver": w.solver}, false
 	case "flyStop":
 		w.flyPhase, w.flyReason = "idle", "stopped"
 		return map[string]any{"phase": "idle"}, false

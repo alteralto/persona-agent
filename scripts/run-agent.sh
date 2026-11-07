@@ -14,6 +14,7 @@ export INTRO=false \
   IDLE_EVERY=60s \
   ACTIVITY_EVERY="${ACTIVITY_EVERY:-30s}" \
   FLIGHT_SHARE="${FLIGHT_SHARE:-0}" \
+  FLY_SOLVER="${FLY_SOLVER:-1}" \
   GIGACHAT_MODEL=GigaChat-2 \
   GIGACHAT_SMART_MODEL=GigaChat-2-Max
 exec ./bin/pyhtun.exe >> logs/pyhtun.log 2>&1

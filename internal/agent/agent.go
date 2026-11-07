@@ -73,6 +73,9 @@ type Config struct {
 	AllowBreak bool
 	// FlightStyle fixes how show flights are flown: normal, low, tricks, route; empty mixes them.
 	FlightStyle string
+	// Solver: the fork's elytra solver on the game's physics steers long legs, rings and pursuit
+	// (FLY_SOLVER=1); off, the plain pilot flies all of it.
+	Solver bool
 	// HoverOnly: in creative every flight is creative flight, no elytra (HOVER_ONLY=1). For a
 	// server where elytra flights get pulled back mid-climb.
 	HoverOnly bool
@@ -139,6 +142,7 @@ type Agent struct {
 	fork           bool // setBuildPolicy worked: the fork's tools are there
 	flightKit      bool
 	noFlight       bool
+	noFlySettings  bool // a fork jar older than flySettings: the pilot it has
 	noTidy         bool
 	botsNear       []string
 	botsKnown      bool

@@ -3,6 +3,7 @@ package agent_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -147,6 +148,30 @@ func TestSimFlyToPlayer(t *testing.T) {
 	r.waitFor("bot next to Alex", 3*time.Second, func() bool { return r.w.DistanceTo("Alex") < 3 })
 	if !r.w.Has("tool", `creativeGive {"count":1,"item":"elytra"}`) {
 		t.Error("no elytra taken from the creative tab")
+	}
+}
+
+func TestSimSolverSetBeforeEveryTakeOff(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) { c.Solver = on })
+		r.w.AddPlayer("Alex", 300, 40)
+		r.ready()
+		r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+		r.waitFor("take-off", 3*time.Second, func() bool { return r.w.Has("fly", "300 40") })
+		want := fmt.Sprintf(`flySettings {"solver":%v}`, on)
+		ev := r.w.Events()
+		set, fly := -1, -1
+		for i, e := range ev {
+			if e.Kind == "tool" && e.Text == want && set < 0 {
+				set = i
+			}
+			if e.Kind == "tool" && strings.HasPrefix(e.Text, "flyTo") && fly < 0 {
+				fly = i
+			}
+		}
+		if set < 0 || fly < 0 || set > fly {
+			t.Errorf("solver %v: want %s before flyTo, got set=%d fly=%d", on, want, set, fly)
+		}
 	}
 }
 

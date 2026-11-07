@@ -67,6 +67,7 @@ func main() {
 		ProtectRadius:   int(envFloat("PROTECT_RADIUS", 256)),
 		AllowBreak:      env("ALLOW_BREAK", "false") == "true",
 		FlightStyle:     env("FLIGHT_STYLE", ""),
+		Solver:          env("FLY_SOLVER", "0") == "1",
 		HoverOnly:       env("HOVER_ONLY", "0") == "1",
 		MarksDir:        env("MARKS_DIR", filepath.Join(mcp.GameDir(), "xaero", "minimap")),
 		XaeroServer:     env("XAERO_SERVER", "Multiplayer_agicraft.ru"),

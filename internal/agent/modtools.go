@@ -397,6 +397,21 @@ func (a *Agent) startWingman(ctx context.Context, nick string) bool {
 	return true
 }
 
+// flightPhysics turns the fork's elytra solver on or off before a take-off. The setting lives in
+// the game client, not in a file: a restarted game has it off again, so it is set every time.
+func (a *Agent) flightPhysics(ctx context.Context) {
+	if a.noFlySettings {
+		return
+	}
+	_, err := a.mc.Call(ctx, "flySettings", map[string]any{"solver": a.cfg.Solver})
+	if unknownTool(err) {
+		a.noFlySettings = true
+		a.log.Info("fork jar without flySettings: the plain pilot flies")
+	} else if err != nil {
+		a.log.Warn("fly settings", "err", err)
+	}
+}
+
 // takeOff readies the flight kit and calls a fork flight tool (flyTo or flyFollow). False when
 // flight is not possible, and the caller walks instead.
 func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) bool {
@@ -419,6 +434,7 @@ func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) b
 	a.following = "" // the @stop above ends any follow; callers set followAfter to resume it
 	a.flying = true  // fall saves off before take-off: a glide must not trigger pearl throws
 	a.applyFallSaves(ctx)
+	a.flightPhysics(ctx)
 	if _, err := a.mc.Call(ctx, tool, args); err != nil {
 		if unknownTool(err) && tool == "flyTo" {
 			a.noFlight = true // upstream mod: never try again this run
