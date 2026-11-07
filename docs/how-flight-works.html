@@ -136,13 +136,14 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
 <body>
 <header>
   <div class="title">
-    <h1>How the bot flies rings and finds a way through gaps</h1>
-    <p>Both scenes are computed right here with the same formulas as the mod: elytra physics, a few hundred moves tried ahead, a search through 4-block cells</p>
+    <h1>How the bot flies rings, finds a way through gaps and keeps up with a player</h1>
+    <p>All three scenes are computed right here with the same formulas as the mod: elytra physics, a few hundred moves tried ahead, a search through 4-block cells</p>
   </div>
   <div class="switches">
     <div class="seg" role="tablist" aria-label="Scene">
       <button role="tab" id="tab-rings" aria-selected="true" aria-controls="view">Rings</button>
       <button role="tab" id="tab-maze" aria-selected="false" aria-controls="view">Maze</button>
+      <button role="tab" id="tab-follow" aria-selected="false" aria-controls="view">Follow</button>
     </div>
     <div class="seg small" role="group" aria-label="Theme">
       <button data-theme-choice="auto" aria-pressed="true">Auto</button>
@@ -175,6 +176,13 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
         <li><button aria-pressed="false"><b>Chain</b><span>The cells the search settled on, from the start to the goal</span></button></li>
         <li><button aria-pressed="false"><b>Straighten</b><span>Only the corners a straight flight cannot cut are kept, at most 28 blocks apart</span></button></li>
         <li><button aria-pressed="false"><b>Fly</b><span>A flight is searched in the cells around the chain with the same physics: a look held 8 ticks, with or without a rocket, room kept from the walls. The rockets (orange) go where the climb to the high gap needs them</span></button></li>
+      </ol>
+      <ol class="steps scene" id="steps-follow" hidden>
+        <li><button aria-pressed="false"><b>Leader</b><span>A player flies a track of their own: two long straights, two turns, up and down. The bot knows only where they are and how fast they go</span></button></li>
+        <li><button aria-pressed="false"><b>Slot</b><span>The bot aims at a slot 5 blocks to the side and 6 behind the leader, put where the leader will be in 2 s: the same 40 ticks every try is flown ahead. Its height counts like its distance</span></button></li>
+        <li><button aria-pressed="false"><b>Before</b><span>Until 07.11 the slot was only 1 s ahead and its height counted little. Every fast try overshot it, so the best score went to the ones that lost speed: here the coral bot trails 40 to 50 blocks behind, and in the game it burned the speed off in a climb, up to 70 blocks over the leader</span></button></li>
+        <li><button aria-pressed="false"><b>Rockets</b><span>The leader's rockets set the budget: while the bot has fired fewer, a rocket costs it a tenth of the usual price; once it is two over, the full price</span></button></li>
+        <li><button aria-pressed="false"><b>Gap</b><span>The gap is the straight distance to the leader. The suite's test asks for a median of at most 15 blocks</span></button></li>
       </ol>
       <div class="row" style="margin-top:10px">
         <button class="btn" id="s-prev">Back</button>
@@ -210,6 +218,20 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
       </div>
     </section>
 
+    <section class="scene ctl" id="ctl-follow" hidden>
+      <h2>Flight</h2>
+      <div class="row">
+        <button class="btn primary" id="f-run">Pause</button>
+        <button class="btn" id="f-reset">Restart</button>
+      </div>
+      <div class="row">
+        <label class="slider" for="f-speed">Replay speed <output id="f-speed-out">1×</output>
+          <input type="range" id="f-speed" min="0.5" max="4" step="0.5" value="1"></label>
+        <span class="check"><input type="checkbox" id="f-old" checked><label for="f-old">Show the bot as it was before</label></span>
+        <span class="check"><input type="checkbox" id="f-cam" checked><label for="f-cam">Camera keeps with the leader</label></span>
+      </div>
+    </section>
+
     <section class="scene" id="read-rings">
       <h2>Instruments</h2>
       <dl class="read">
@@ -222,6 +244,7 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
         <dt>Tries: all, would hit</dt><dd id="rd-cand">0, 0</dd>
         <dt>Chosen: pitch, rocket</dt><dd id="rd-pick">none yet</dd>
       </dl>
+      <p class="facts">On a plot on a live server the bot built a course of nine rings in the sky itself, out along one lane and back along the next, and flew it <b>3</b> laps of 3 through all nine, 0.1 to 2.7 blocks off centre, 7 to 8 rockets a lap</p>
     </section>
     <section class="scene" id="read-maze" hidden>
       <h2>Instruments</h2>
@@ -238,10 +261,22 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
       <p class="facts">The corners alone were not enough: flown as rings, the bot ran out of speed on the climb from the low gap to the high one. On the test bench, ten flights each, a pass being a landing inside the hall: the corners as rings <b>5</b> of 10, the planned flight <b>9</b> of 10, and <b>10</b> of 10 at the survival rocket price</p>
     </section>
 
+    <section class="scene" id="read-follow" hidden>
+      <h2>Instruments</h2>
+      <dl class="read">
+        <dt>Tick</dt><dd id="fd-tick">0</dd>
+        <dt>Gap now, blocks: now, before</dt><dd id="fd-gap">0, 0</dd>
+        <dt>Median gap: now, before</dt><dd id="fd-med">none yet</dd>
+        <dt>Most over the leader: now, before</dt><dd id="fd-dy">0, 0</dd>
+        <dt>Rockets: leader, now, before</dt><dd id="fd-rk">0, 0, 0</dd>
+      </dl>
+      <p class="facts">In the game, a half-second trace of leader and follower showed the old slot: the bot climbed up to <b>70</b> blocks over the leader and kept <b>35</b> to <b>68</b> behind (median). With the slot at the end of the look ahead and the leader's rockets as the budget, <b>15</b> to <b>18</b>. Here the bot knows the leader's speed exactly and keeps closer than in the game, where it comes in steps</p>
+    </section>
+
     <section class="facts">
       <h2>The physics model</h2>
       <p>Each tick repeats the game: the glide first, then the rocket's pull. Checked against <b>848</b> ticks of real flight, the speed differs from the game by <b>0.0000</b> blocks per tick when gliding and <b>0.0001</b> under a rocket (median)</p>
-      <p>Code: <a href="https://github.com/alteralto/unionclef/tree/pyhtun">UnionClef fork, branch pyhtun</a> and the agent in <a href="https://github.com/alteralto/persona-agent">persona-agent</a></p>
+      <p>Code: the <a href="https://github.com/alteralto/unionclef/tree/agent-flight">UnionClef fork, branch agent-flight</a>, offered upstream as <a href="https://github.com/3ndetz/unionclef/pull/35">PR #35</a>, and the agent in <a href="https://github.com/alteralto/persona-agent">persona-agent</a></p>
     </section>
   </aside>
 </main>
@@ -348,6 +383,17 @@ function drop(scene, layer) {
   scene.remove(layer);
   layer.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
 }
+// the glider: a body and two wings, turned by yaw and pitch
+function gliderMesh(g, body, scale = 1) {
+  const bot = new THREE.Group();
+  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: body })));
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: P.wing }));
+  wing.position.z = -0.2; bot.add(wing);
+  bot.position.set(g.pos[0], g.pos[1] + 0.3, g.pos[2]);
+  bot.rotation.order = "YXZ"; bot.rotation.y = -g.yaw * RAD; bot.rotation.x = g.pitch * RAD;
+  bot.scale.setScalar(scale);
+  return bot;
+}
 function setLegend(items) {
   document.getElementById("legend").innerHTML =
     items.map(([c, t]) => `<span><i style="background:${hex(c)}"></i>${t}</span>`).join("");
@@ -355,7 +401,7 @@ function setLegend(items) {
 
 // ---------- labels: HTML tags pinned to points of the scene ----------
 const labelBox = document.getElementById("labels");
-const labels = { rings: [], maze: [] };
+const labels = { rings: [], maze: [], follow: [] };
 const pool = [];
 const tmp = new THREE.Vector3();
 const RANK = { pick: 0, target: 1, hit: 1 };
@@ -381,13 +427,13 @@ function placeLabels() {
 }
 
 // ---------- steps: one part of the scene at a time ----------
-const STEPS = { rings: [], maze: [] };
-for (const id of ["rings", "maze"])
+const STEPS = { rings: [], maze: [], follow: [] };
+for (const id of ["rings", "maze", "follow"])
   document.querySelectorAll(`#steps-${id} button`).forEach((b, i) => {
     STEPS[id].push({ title: b.querySelector("b").textContent, text: b.querySelector("span").textContent, el: b });
     b.onclick = () => setFocus(id, focus[id] === i + 1 ? 0 : i + 1);
   });
-const focus = { rings: 0, maze: 0 };
+const focus = { rings: 0, maze: 0, follow: 0 };
 function setFocus(id, i) {
   focus[id] = i;
   STEPS[id].forEach((s, k) => s.el.setAttribute("aria-pressed", k + 1 === i));
@@ -395,6 +441,8 @@ function setFocus(id, i) {
   if (id === "rings") {
     if (i) setRunning(false);
     redrawRings();
+  } else if (id === "follow") {
+    drawFollow();
   } else {
     if (i >= 2 && !mazeRun) search();
     if (i >= 3 || reduced) mazeAnim = 1e9;
@@ -443,12 +491,12 @@ function blockedR(p) {
         if (solidR.has(key(x, y, z))) return true;
   return false;
 }
-function predict(pos, vel, yaw, pitch, ticks, pull) {
+function predict(pos, vel, yaw, pitch, ticks, pull, blocked = blockedR) {
   const pts = [pos]; let p = pos, v = vel;
   for (let i = 0; i < ticks; i++) {
     v = step(v, yaw, pitch, i < pull);
     const n = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
-    if (blockedR(n)) return { pts, hit: true };
+    if (blocked(n)) return { pts, hit: true };
     p = n; pts.push(p);
   }
   return { pts, hit: false };
@@ -465,20 +513,20 @@ function closest(pts, c) {
   return best;
 }
 // ElytraSolver: coarse pass, then a finer pass around the winner
-function solve(pos, vel, rocketLeft, goal, through, cost, mayFire) {
+function solve(pos, vel, rocketLeft, goal, through, cost, mayFire, heightWeight = 0.3, blocked = blockedR) {
   const direct = Math.atan2(-(goal[0] - pos[0]), goal[2] - pos[2]) / RAD;
   const d0 = Math.hypot(goal[0] - pos[0], goal[2] - pos[2]);
   const eWant = goal[1] + 1.5 * 1.5 / 0.16;
   let best = null, latest = null; const all = [], hits = [];
   function fly(yaw, pitch, fire, dy) {
     pitch = Math.max(-89, Math.min(89, pitch));
-    const r = predict(pos, vel, yaw, pitch, 40, fire ? 20 : rocketLeft);
+    const r = predict(pos, vel, yaw, pitch, 40, fire ? 20 : rocketLeft, blocked);
     if (r.hit) { hits.push(r.pts); if (!latest || r.pts.length > latest.pts.length) latest = { yaw, pitch, fire, pts: r.pts, score: -1e9 }; return; }
     const e = r.pts[r.pts.length - 1], pe = r.pts[r.pts.length - 2] || pos;
     const ev = [e[0] - pe[0], e[1] - pe[1], e[2] - pe[2]];
     const progress = d0 - Math.hypot(goal[0] - e[0], goal[2] - e[2]);
     const deficit = Math.max(0, eWant - (e[1] + (ev[0] ** 2 + ev[1] ** 2 + ev[2] ** 2) / 0.16));
-    const score = progress - 0.3 * Math.abs(goal[1] - e[1]) - 0.8 * deficit - (fire ? cost : 0)
+    const score = progress - heightWeight * Math.abs(goal[1] - e[1]) - 0.8 * deficit - (fire ? cost : 0)
       - Math.abs(dy) * 0.02 - (through ? 8 * closest(r.pts, through) : 0);
     const c = { yaw, pitch, fire, pts: r.pts, score }; all.push(c);
     if (!best || score > best.score) best = c;
@@ -576,14 +624,7 @@ function redrawRings() {
     const missed = i < R.miss.length ? `, missed by ${R.miss[i]}` : next ? ", next" : "";
     L.push({ at: [c[0], c[1] + 5, c[2]], text: `Ring ${i + 1}${missed}`, kind: next ? "target" : "" });
   });
-  // the glider: a body and two wings, turned by yaw and pitch
-  const bot = new THREE.Group();
-  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: P.body })));
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: P.wing }));
-  wing.position.z = -0.2; bot.add(wing);
-  bot.position.set(R.pos[0], R.pos[1] + 0.3, R.pos[2]);
-  bot.rotation.order = "YXZ"; bot.rotation.y = -R.yaw * RAD; bot.rotation.x = R.pitch * RAD;
-  ringLayer.add(bot);
+  ringLayer.add(gliderMesh(R, P.body));
   L.push({ at: [R.pos[0], R.pos[1] + 1.6, R.pos[2]], text: R.crash ? "bot, crashed" : "bot" });
   labels.rings = L;
   ringScene.add(ringLayer);
@@ -889,6 +930,128 @@ function mazeLegend() {
   setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners, then the flight planned"], [P.rocket, "rocket in the plan"]]);
 }
 
+// ======================= FOLLOW =======================
+// A player flies a track of their own, two straights and two turns; two bots follow on the solver, one aiming at the slot as it was
+// until 07.11, the other as now (ElytraFlight.followSlot and the pursuit's rocket budget)
+const followScene = makeScene();
+floor(followScene, 920, 360, 0);
+const LOOP = [[-150, 48, 120], [0, 36, 120], [150, 46, 120], [300, 40, 120], [400, 42, 0], [300, 44, -120], [150, 36, -120],
+  [0, 48, -120], [-150, 38, -120], [-300, 44, -120], [-400, 40, 0], [-300, 42, 120]];
+const FORMATION = 14;
+const openSky = p => p[1] < 0;   // only the ground is in the way
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const median = a => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : NaN;
+function glider(pos) {
+  return { pos, vel: [1.4, 0, 0], yaw: -90, pitch: 0, rocketLeft: 0, lastRocket: -100, rockets: 0,
+    plan: null, planTick: -10, trail: [pos], marks: [], slot: null, gaps: [], over: 0, most: 0 };
+}
+// one tick on the solver towards a goal: a plan every 2 ticks, the look turned at a hand's pace
+function glide(G, t, goal, cost, heightWeight, mayBoost) {
+  if (t - G.planTick >= 2) {
+    const since = t - G.lastRocket;
+    G.plan = solve(G.pos, G.vel, Math.max(0, 20 - since), goal, null, cost, since >= 20 && mayBoost, heightWeight, openSky);
+    G.planTick = t;
+    let fire = G.plan.best && G.plan.best.fire;
+    if (!fire && Math.hypot(G.vel[0], G.vel[2]) < 0.9 && since >= 20 && mayBoost) fire = true;
+    if (fire) { G.rocketLeft = 20; G.lastRocket = t; G.rockets++; G.marks.push(G.pos); }
+  }
+  const b = G.plan && G.plan.best;
+  if (b) {
+    G.yaw += Math.max(-25, Math.min(25, ((b.yaw - G.yaw + 540) % 360) - 180));
+    G.pitch += Math.max(-15, Math.min(15, b.pitch - G.pitch));
+  }
+  G.vel = step(G.vel, G.yaw, G.pitch, G.rocketLeft > 0);
+  if (G.rocketLeft > 0) G.rocketLeft--;
+  G.pos = [G.pos[0] + G.vel[0], G.pos[1] + G.vel[1], G.pos[2] + G.vel[2]];
+  if (t % 2 === 0) { G.trail.push(G.pos); if (G.trail.length > 160) G.trail.shift(); }
+}
+// the slot: `ahead` ticks along the leader's velocity, 6 blocks back and `side` across, smoothed
+function slotFor(G, lead, ahead, side) {
+  const v = lead.vel, sp = Math.max(Math.hypot(...v), 1e-6), hs = Math.max(Math.hypot(v[0], v[2]), 1e-6);
+  const px = -v[2] / hs, pz = v[0] / hs;
+  const raw = [lead.pos[0] + v[0] * ahead - v[0] / sp * 6 + px * side, lead.pos[1] + v[1] * ahead - v[1] / sp * 6,
+    lead.pos[2] + v[2] * ahead - v[2] / sp * 6 + pz * side];
+  G.slot = !G.slot || dist(G.slot, raw) > 20 ? raw : G.slot.map((s, i) => s + (raw[i] - s) * 0.25);
+  return G.slot;
+}
+const F = {};
+let followLayer = null;
+function followReset() {
+  F.tick = 0; F.wp = 0; F.lead = glider([-300, 40, 120]);
+  F.old = glider([-325, 40, 124]); F.now = glider([-325, 40, 116]);
+}
+function followTick() {
+  const L = F.lead, o = F.old, n = F.now, t = F.tick;
+  if (Math.hypot(LOOP[F.wp][0] - L.pos[0], LOOP[F.wp][2] - L.pos[2]) < 25) F.wp = (F.wp + 1) % LOOP.length;
+  glide(L, t, LOOP[F.wp], 12, 0.4, true);
+  // until 07.11: a point 20 ticks ahead, its height weighed as for a trip, rockets at the trip's price
+  glide(o, t, slotFor(o, L, 20, 5), 12, 0.4, true);
+  // now: the slot where the look ahead ends, its height like its distance, the leader's rockets the budget
+  const gap = dist(L.pos, n.pos), owed = L.rockets - n.rockets;
+  const scale = owed > 0 ? 0.1 : -owed < 2 ? Math.min(1, FORMATION / gap) : 1;
+  glide(n, t, slotFor(n, L, 40, -5), 12 * scale, 1.0, owed >= 0 || gap > FORMATION);
+  for (const g of [o, n]) { g.over = g.pos[1] - L.pos[1]; g.most = Math.max(g.most, g.over); if (t >= 60) g.gaps.push(dist(L.pos, g.pos)); }
+  F.tick++;
+}
+function drawFollow() {
+  drop(followScene, followLayer);
+  followLayer = new THREE.Group();
+  const S = focus.follow, lead = F.lead, now = F.now, old = F.old, L = [];
+  const showNow = S !== 1, showOld = S ? S === 3 || S === 5 : document.getElementById("f-old").checked;
+  const ball = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: col, wireframe: true })); m.position.set(p[0], p[1] + 0.3, p[2]); return m; };
+  const line = (a, b, col, op) => polyline([[a[0], a[1] + 0.3, a[2]], [b[0], b[1] + 0.3, b[2]]], col, op);
+  const trail = (g, col, r) => { if (g.trail.length > 1) followLayer.add(tube(g.trail.map(p => [p[0], p[1] + 0.3, p[2]]), col, r)); };
+  const rockets = g => { for (const m of g.marks.slice(-30)) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
+    b.position.set(m[0], m[1] + 0.3, m[2]); followLayer.add(b);
+  } };
+  trail(lead, P.cyan, 0.12);
+  followLayer.add(gliderMesh(lead, P.cyan, 2.4));
+  if (S === 1) LOOP.forEach(w => followLayer.add(ball(w, P.slate, 0.8)));
+  if (S === 4) rockets(lead);
+  L.push({ at: [lead.pos[0], lead.pos[1] + 3, lead.pos[2]], kind: "target",
+    text: S === 1 ? "leader, a player on a track of their own" : S === 4 ? `leader, ${lead.rockets} rockets` : "leader" });
+  if (S === 2) {
+    const ahead = [0, 1, 2].map(i => lead.pos[i] + lead.vel[i] * 40);
+    followLayer.add(ball(ahead, P.cyan, 0.6));
+    followLayer.add(line(lead.pos, ahead, P.cyan, 0.5));
+    L.push({ at: [ahead[0], ahead[1] + 3.5, ahead[2]], text: "leader in 2 s" });
+  }
+  const bots = [];
+  if (showNow) bots.push([now, P.pick, "bot now", 40, "pick"]);
+  if (showOld) bots.push([old, P.coral, "bot before", 20, "hit"]);
+  for (const [g, col, name, ahead, kind] of bots) {
+    trail(g, col, 0.09);
+    followLayer.add(gliderMesh(g, col, 2.4));
+    if (g.slot && (!S || S === 2 || S === 3)) {
+      followLayer.add(ball(g.slot, col, 0.9));
+      followLayer.add(line(g.pos, g.slot, col, 0.5));
+      if (S) L.push({ at: [g.slot[0], g.slot[1] + 2, g.slot[2]], text: `slot, ${ahead / 20} s ahead` });
+    }
+    if (g === now && g.plan && g.plan.best && (!S || S === 2))
+      followLayer.add(tube(g.plan.best.pts.map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.07));
+    if (!S || S === 4) rockets(g);
+    if (S === 5) {
+      followLayer.add(line(g.pos, lead.pos, col, 0.9));
+      L.push({ at: [0, 1, 2].map(i => (g.pos[i] + lead.pos[i]) / 2 + (i === 1 ? 1.5 : 0)), text: `${dist(g.pos, lead.pos).toFixed(0)} blocks`, kind });
+    }
+    const what = S === 3 && g === old ? `, ${dist(g.pos, lead.pos).toFixed(0)} behind`
+      : S === 4 ? `, ${g.rockets} rockets` : "";
+    L.push({ at: [g.pos[0], g.pos[1] + 3, g.pos[2]], text: name + what, kind });
+  }
+  labels.follow = L;
+  followScene.add(followLayer);
+  const f1 = x => isNaN(x) ? "none yet" : x.toFixed(1);
+  document.getElementById("fd-tick").textContent = F.tick;
+  document.getElementById("fd-gap").textContent = `${dist(now.pos, lead.pos).toFixed(1)}, ${dist(old.pos, lead.pos).toFixed(1)}`;
+  document.getElementById("fd-med").textContent = now.gaps.length ? `${f1(median(now.gaps))}, ${f1(median(old.gaps))}` : "none yet";
+  document.getElementById("fd-dy").textContent = `${now.most.toFixed(1)}, ${old.most.toFixed(1)}`;
+  document.getElementById("fd-rk").textContent = `${lead.rockets}, ${now.rockets}, ${old.rockets}`;
+}
+function followLegend() {
+  setLegend([[P.cyan, "leader"], [P.pick, "bot now, the slot it aims at"], [P.coral, "bot before 07.11"], [P.rocket, "rocket fired"]]);
+}
+
 // ======================= theme, tabs, loop =======================
 function applyTheme() {
   const dark = themeChoice === "dark" || (themeChoice === "auto" && !sysLight.matches);
@@ -897,8 +1060,8 @@ function applyTheme() {
   for (const [, apply] of themed) apply(P);
   if (seenMesh) seenMesh.material.color.setHex(P.seen);
   document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeChoice === themeChoice));
-  if (current === "rings") ringLegend(); else mazeLegend();
-  redrawRings(); drawMaze();
+  if (current === "rings") ringLegend(); else if (current === "follow") followLegend(); else mazeLegend();
+  redrawRings(); drawMaze(); if (F.lead) drawFollow();
 }
 document.querySelectorAll("[data-theme-choice]").forEach(b => b.onclick = () => {
   themeChoice = b.dataset.themeChoice; store.set(themeChoice); applyTheme();
@@ -908,15 +1071,22 @@ sysLight.addEventListener("change", () => { if (themeChoice === "auto") applyThe
 let current = "rings", running = true, acc = 0;
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function setRunning(on) { running = on; document.getElementById("r-run").textContent = on ? "Pause" : "Play"; }
+let followRunning = true, facc = 0;
+function setFollowRunning(on) { followRunning = on; document.getElementById("f-run").textContent = on ? "Pause" : "Play"; }
 function show(which) {
   current = which;
-  for (const id of ["rings", "maze"]) {
+  for (const id of ["rings", "maze", "follow"]) {
     document.getElementById("tab-" + id).setAttribute("aria-selected", id === which);
     for (const part of ["steps-", "ctl-", "read-"]) document.getElementById(part + id).hidden = id !== which;
   }
   if (which === "rings") {
     camera.position.set(-18, 50, 98); controls.target.set(88, 12, 0);
     ringLegend();
+  } else if (which === "follow") {
+    if (!F.lead) { followReset(); for (let i = 0; i < 120; i++) followTick(); }
+    controls.target.set(...F.lead.pos); camera.position.set(F.lead.pos[0] - 55, F.lead.pos[1] + 30, F.lead.pos[2] + 60);
+    followLegend();
+    drawFollow();
   } else {
     camera.position.set(-40, 60, 70); controls.target.set(55, 8, 0);
     mazeLegend();
@@ -931,6 +1101,11 @@ function show(which) {
 }
 document.getElementById("tab-rings").onclick = () => show("rings");
 document.getElementById("tab-maze").onclick = () => show("maze");
+document.getElementById("tab-follow").onclick = () => show("follow");
+document.getElementById("f-speed").oninput = e => { document.getElementById("f-speed-out").textContent = e.target.value + "×"; };
+document.getElementById("f-run").onclick = () => setFollowRunning(!followRunning);
+document.getElementById("f-reset").onclick = () => { followReset(); show("follow"); };
+document.getElementById("f-old").onchange = () => drawFollow();
 const cost = () => +document.getElementById("r-cost").value;
 const speed = () => +document.getElementById("r-speed").value;
 document.getElementById("r-cost").oninput = e => { document.getElementById("r-cost-out").textContent = e.target.value; };
@@ -955,8 +1130,23 @@ function loop(t) {
   }
   if (current === "rings" && R.done && running) { R.wait += dt; if (R.wait > 3) ringReset(); }
   if (current === "maze" && mazeRun && mazeAnim < mazeRun.seen.length) { mazeAnim += dt * 900; drawMaze(); }
+  if (current === "follow" && followRunning) {
+    facc += dt * 20 * +document.getElementById("f-speed").value;
+    const before = F.lead.pos;
+    let n = 0;
+    while (facc >= 1 && n < 8) { followTick(); facc -= 1; n++; }
+    if (F.tick > 6000) followReset();
+    if (n) {
+      // the camera moves with the leader, keeping the angle it was turned to
+      if (document.getElementById("f-cam").checked) {
+        const d = new THREE.Vector3(F.lead.pos[0] - before[0], F.lead.pos[1] - before[1], F.lead.pos[2] - before[2]);
+        controls.target.add(d); camera.position.add(d);
+      }
+      drawFollow();
+    }
+  }
   controls.update();
-  renderer.render(current === "rings" ? ringScene : mazeScene, camera);
+  renderer.render(current === "rings" ? ringScene : current === "follow" ? followScene : mazeScene, camera);
   placeLabels();
   requestAnimationFrame(loop);
 }
@@ -964,7 +1154,7 @@ ringReset();
 // open at rest on a moment worth seeing: a few seconds into the flight, a plan drawn
 for (let i = 0; i < 70; i++) ringTick(12);
 applyTheme();
-show(QS.get("scene") === "maze" ? "maze" : "rings");
+show(/^(maze|follow)$/.test(QS.get("scene") || "") ? QS.get("scene") : "rings");
 const qStep = +QS.get("step");
 if (qStep >= 1 && qStep <= STEPS[current].length) setFocus(current, qStep);
 resize();

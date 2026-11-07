@@ -9,6 +9,44 @@ The character himself — backstory, temper, speech — is in [docs/persona.md](
 The design goal is **speed**: from the end of a player's phrase to the first sound of the answer
 in about two seconds, most of it speech recognition.
 
+<p align="center">
+  <img src="docs/media/sky-rings.gif" width="720" alt="The bot flies on an elytra through a course of coloured concrete rings in the sky at sunset">
+  <br>
+  <sub>Nine rings in the sky on a live survival server: the bot built them itself (493 blocks, nothing broken) and flies them on the game's own physics</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/8aedadf5-2fa4-4de0-af7c-195064488617"><b>Overview video, 2 min</b></a> ·
+  <a href="https://alteralto.github.io/persona-agent/how-flight-works.html"><b>How it flies, interactive 3D</b></a> ·
+  <a href="https://github.com/3ndetz/unionclef/pull/35"><b>The flight code, UnionClef PR #35</b></a>
+</p>
+
+## See it
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/three-bots.gif" alt="Three bots take off 0.7 s apart and fly the same ring course one after another"></td>
+    <td width="50%"><img src="docs/media/hall.gif" alt="Three bots fly through a glass hall with gaps in its walls at different heights"></td>
+  </tr>
+  <tr>
+    <td><b>Three bots, 0.7 s apart</b>, on a copy of the sky course: 27 of 27 rings</td>
+    <td><b>Through a hall</b>: a route searched over 4-block cells, then a flight planned on the physics inside it</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/demo-rings.gif" alt="3D page: a glider tries hundreds of glides two seconds ahead, drops the ones that hit a ring and flies the best"></td>
+    <td width="50%"><img src="docs/media/demo-follow.gif" alt="3D page: a leader flies a track, the current bot keeps close and the old version falls far behind"></td>
+  </tr>
+  <tr>
+    <td><b>The solver</b>, every other tick: ~250 glides flown 2 s ahead, the ones that hit dropped (coral), the best kept (pink)</td>
+    <td><b>Following a player</b>: the bot now (pink) against the bot as it was (coral), which trailed 40-50 blocks behind</td>
+  </tr>
+</table>
+
+The 2-minute overview: the sky course, three bots through the rings, the hall before and after,
+pursuit, and the flight courses in the mod's own test suite.
+
+https://github.com/user-attachments/assets/8aedadf5-2fa4-4de0-af7c-195064488617
+
 ## How it works
 
 ```mermaid
@@ -64,16 +102,22 @@ GigaChat and the mod. The source is [docs/pyhtun.bpmn](docs/pyhtun.bpmn) (opens 
 
 ![Pyhtun as a BPMN process](docs/pyhtun-bpmn.png)
 
-### How the bot flies through rings and finds gaps
+### How the bot flies through rings, finds gaps and follows a player
 
 [Open the interactive 3D page](https://alteralto.github.io/persona-agent/how-flight-works.html)
-(source: [docs/how-flight-works.html](docs/how-flight-works.html)). Both scenes run the mod's own
-formulas in the page. In one, the bot flies four rings and you watch it fly ~250 candidate glides two
-seconds ahead every other tick and keep one. In the other, a hall is cut into 4-block cells and a
-search finds the way through the gaps. A step-by-step mode shows one part of the scene at a time,
-and the page has dark and light themes. The physics model
-and the solver are in the UnionClef fork (tungsten `elytra/ElytraPhysics`, `ElytraSolver`); the route
-search through the air is still being worked on.
+(source: [docs/how-flight-works.html](docs/how-flight-works.html)). All three scenes run the mod's
+own formulas in the page:
+- **Rings**: the bot flies four rings, and you watch it fly ~250 candidate glides two seconds
+  ahead every other tick and keep one.
+- **Maze**: a hall is cut into 4-block cells, a search finds the way through the gaps, and a flight
+  is planned on the physics inside that corridor.
+- **Follow**: a player flies a track and two bots follow, one aiming where the leader will be when
+  its two-second look ahead ends, the other at the point one second ahead that it used before.
+
+A step-by-step mode shows one part of the scene at a time, and the page has dark and light themes.
+The physics model, the solver and the route search are in tungsten in the UnionClef fork
+(`elytra/ElytraPhysics`, `ElytraSolver`, `AirRoute`, `AirPlan`), offered upstream as
+[PR #35](https://github.com/3ndetz/unionclef/pull/35).
 
 ## What the character does
 
@@ -84,7 +128,7 @@ search through the air is still being worked on.
 | stay with companions, start conversations | idle turns: invite someone to a remembered place, or talk on a rotating topic |
 | explore | chunk by chunk around home; surface map + sign text → `data/places.json` |
 | remember people | `data/people/<nick>.md`: dated exchanges + short notes (summarised while quiet) |
-| fly on an elytra | fork tool `flyTo`: equip, take off, climb on rockets, glide down near the target |
+| fly on an elytra | fork tool `flyTo`: equip, take off, climb on rockets, glide down near the target; `flyFollow` keeps up with a flying player |
 | creative and survival | game mode from `getGameState`; creative takes items from the creative tab |
 
 ## Flying
@@ -92,6 +136,14 @@ search through the air is still being worked on.
 The character flies on elytra through the fork's pilot: normal flights, low-level, aerobatic
 figures and routes round places, with plane-like landings. Modes, styles and safety, with diagrams:
 [docs/elytra-pilot.md](https://github.com/alteralto/unionclef/blob/pyhtun/docs/elytra-pilot.md).
+
+With the fork's solver switched on (`flySettings solver`, which the agent does not do yet), long
+legs, rings and pursuit are steered on the game's own physics instead. The physics is checked
+against 848 ticks of real flight, and the courses run in the mod's test suite: six rings 6/6,
+500 blocks 6/6. On a live server the bot flew the nine-ring sky course 3 laps of 3. Following a
+leader, the median gap went from 35-68 blocks to 15-18. The numbers, and what is not done yet
+(take-off and landing are still the plain pilot):
+[ELYTRA_TUNGSTEN.md](https://github.com/alteralto/unionclef/blob/agent-flight/docs/features/ELYTRA_TUNGSTEN.md).
 
 ## Self-improvement loop
 
