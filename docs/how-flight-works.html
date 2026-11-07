@@ -1240,8 +1240,13 @@ document.getElementById("m-reset").onclick = () => { mazeRun = null; setFocus("m
 document.getElementById("m-closed").onchange = () => drawMaze();
 document.getElementById("m-seen").onchange = () => drawMaze();
 
-let lastT = performance.now();
+// Drawn at most 60 times a second: the game runs 20 ticks a second, and a fast monitor asked for
+// 144 frames that showed nothing new. Out of sight (scrolled past on a phone) the loop stops.
+let lastT = performance.now(), looping = false, onScreen = true;
+const FRAME_MS = 1000 / 60 - 1;
 function loop(t) {
+  if (!onScreen) { looping = false; return; }
+  if (t - lastT < FRAME_MS) { requestAnimationFrame(loop); return; }
   const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
   if (current === "rings" && running && !R.done) {
     acc += dt * 20 * speed();                       // 20 ticks a second, as the game
@@ -1301,7 +1306,12 @@ const qStep = +QS.get("step");
 if (qStep >= 1 && qStep <= STEPS[current].length) setFocus(current, qStep);
 if (camMode !== "orbit") setCam(camMode);
 resize();
+looping = true;
 requestAnimationFrame(loop);
+new IntersectionObserver(([e]) => {
+  onScreen = e.isIntersecting;
+  if (onScreen && !looping) { looping = true; lastT = performance.now(); requestAnimationFrame(loop); }
+}).observe(view);
 </script>
 </body>
 </html>
