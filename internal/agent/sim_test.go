@@ -3,6 +3,7 @@ package agent_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
@@ -172,6 +173,27 @@ func TestSimSolverSetBeforeEveryTakeOff(t *testing.T) {
 		if set < 0 || fly < 0 || set > fly {
 			t.Errorf("solver %v: want %s before flyTo, got set=%d fly=%d", on, want, set, fly)
 		}
+	}
+}
+
+func TestSimStatusShowsTheFlight(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10}, func(c *agent.Config) { c.Solver = true })
+	r.w.AddPlayer("Alex", 300, 40)
+	r.ready()
+	view := func() agent.FlightView {
+		b, _ := json.Marshal(r.a.Status())
+		var st struct{ Flight agent.FlightView }
+		_ = json.Unmarshal(b, &st)
+		return st.Flight
+	}
+	r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+	r.waitFor("status: flying", 3*time.Second, func() bool { return view().Flying })
+	if v := view(); !v.Solver || v.Style != "normal" {
+		t.Errorf("in flight: want the solver on and a normal flight, got %+v", v)
+	}
+	r.waitFor("status: landed", 5*time.Second, func() bool { v := view(); return !v.Flying && v.Flights == 1 })
+	if v := view(); v.Phase != "done" {
+		t.Errorf("after landing: want phase done, got %+v", v)
 	}
 }
 

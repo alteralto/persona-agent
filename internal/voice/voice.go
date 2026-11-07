@@ -17,9 +17,16 @@ type Heard struct {
 	STTms int    `json:"stt_ms"`
 }
 
-// Listen serves POST /voice on addr and forwards each phrase to out.
-func Listen(ctx context.Context, addr string, out chan<- Heard) error {
+// Listen serves POST /voice on addr and forwards each phrase to out; GET /status answers with
+// status() as JSON (the control panel reads the flight from it), when status is not nil.
+func Listen(ctx context.Context, addr string, out chan<- Heard, status func() any) error {
 	mux := http.NewServeMux()
+	if status != nil {
+		mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(status())
+		})
+	}
 	mux.HandleFunc("POST /voice", func(w http.ResponseWriter, r *http.Request) {
 		var h Heard
 		if err := json.NewDecoder(r.Body).Decode(&h); err != nil || h.Nick == "" || h.Text == "" {

@@ -100,7 +100,7 @@ func main() {
 	if env("VOICE", "true") == "true" {
 		heard := a.WithVoice(voice.NewSpeaker(env("VOICE_SAY_URL", "http://127.0.0.1:8091/say")))
 		go func() {
-			if err := voice.Listen(ctx, env("VOICE_LISTEN", "127.0.0.1:8092"), heard); err != nil {
+			if err := voice.Listen(ctx, env("VOICE_LISTEN", "127.0.0.1:8092"), heard, a.Status); err != nil {
 				log.Error("voice listener", "err", err)
 			}
 		}()

@@ -143,6 +143,7 @@ type Agent struct {
 	flightKit      bool
 	noFlight       bool
 	noFlySettings  bool // a fork jar older than flySettings: the pilot it has
+	view           flightView
 	noTidy         bool
 	botsNear       []string
 	botsKnown      bool

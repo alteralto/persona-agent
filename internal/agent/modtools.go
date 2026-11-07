@@ -748,6 +748,7 @@ func (a *Agent) checkFlight(ctx context.Context) bool {
 		a.log.Info("flight: status", "mode", tel.Mode, "speed", tel.Speed, "pitch", tel.Pitch,
 			"climb", tel.Climb, "dist", tel.Distance)
 	}
+	a.viewFlight(st.Phase, st.Reason, tel.Mode, tel.Speed, tel.Distance, st.Rocket)
 	if p, err := explore.ParsePos(tel.Pos); err == nil {
 		x, z := explore.Block(p.X), explore.Block(p.Z)
 		if n := len(a.track); n == 0 || math.Hypot(float64(x-a.track[n-1][0]), float64(z-a.track[n-1][1])) > 4 {
