@@ -40,6 +40,14 @@ in about two seconds, most of it speech recognition.
     <td><b>The solver</b>, every other tick: ~250 glides flown 2 s ahead, the ones that hit dropped (coral), the best kept (pink)</td>
     <td><b>Following a player</b>: the bot now (pink) against the bot as it was (coral), which trailed 40-50 blocks behind</td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/demo-eye.gif" alt="3D page from the bot's eyes: the glider flies through four rings while its candidate glides fan out ahead"></td>
+    <td width="50%"><img src="docs/media/demo-mazechase.gif" alt="3D page, camera behind the bot: the planned flight through the low gap, up to the high gap and on to the goal"></td>
+  </tr>
+  <tr>
+    <td><b>From the bot's eyes</b>: the same solver, seen from where it sits, through the four rings</td>
+    <td><b>Behind the bot</b>: the flight planned through the hall, flown again, rockets where the climb needs them</td>
+  </tr>
 </table>
 
 The 2-minute overview: the sky course, three bots through the rings, the hall before and after,
@@ -114,7 +122,9 @@ own formulas in the page:
 - **Follow**: a player flies a track and two bots follow, one aiming where the leader will be when
   its two-second look ahead ends, the other at the point one second ahead that it used before.
 
-A step-by-step mode shows one part of the scene at a time, and the page has dark and light themes.
+A step-by-step mode shows one part of the scene at a time. The camera can orbit the scene, ride behind
+the bot or look out of its eyes, and the page has dark and light themes. Earlier versions of the
+page are kept in [docs/archive](docs/archive).
 The physics model, the solver and the route search are in tungsten in the UnionClef fork
 (`elytra/ElytraPhysics`, `ElytraSolver`, `AirRoute`, `AirPlan`), offered upstream as
 [PR #35](https://github.com/3ndetz/unionclef/pull/35).

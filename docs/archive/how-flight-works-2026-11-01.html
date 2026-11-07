@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the bot flies rings and finds a way through gaps</title>
+<meta name="description" content="An interactive 3D page: how a Minecraft bot on elytra plans its glide through rings and searches a way through a hall of walls, with the same physics as the mod">
+<script>
+// Theme before first paint: the stored choice, or the system's when it is "auto"
+(function () {
+  var q = new URLSearchParams(location.search).get("theme");
+  var saved = null; try { saved = localStorage.getItem("theme"); } catch (e) {}
+  var c = /^(auto|dark|light)$/.test(q || "") ? q : saved || "auto";
+  var dark = c === "dark" || (c === "auto" && !matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Unbounded:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* VibeCADing: navy or paper ground, blue buttons, pink only for what the machine chose (the glide it
+     picked, the corners it kept). Cyan marks targets, coral what would hit, orange the rockets */
+  --bg: #0b1330;
+  --panel: #0f1a40;
+  --line: #26325c;
+  --line-strong: #3a5bb0;
+  --ink: #e6ecfa;
+  --muted: #9aa6c4;
+  --blue: #17357e;
+  --chalk: #eaf0ff;
+  --pink: #ff6fb0;
+  --pink-ink: #ff8cc0;
+  --cyan: #4cc8e0;
+  --coral: #ef6b5b;
+  --veil: rgba(11, 19, 48, .84);
+  --btn: #16224f;
+  --note-ink: #f3c6bf;
+  --note-bg: rgba(239, 107, 91, .1);
+  --font-display: "Unbounded", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f4f6fa;
+  --panel: #ebeff7;
+  --line: #d3dae8;
+  --line-strong: #1c3f94;
+  --ink: #0d1838;
+  --muted: #4b5675;
+  --blue: #1c3f94;
+  --pink-ink: #b3125e;
+  --cyan: #0b7592;
+  --coral: #b93a2a;
+  --veil: rgba(244, 246, 250, .9);
+  --btn: #ffffff;
+  --note-ink: #7d2418;
+  --note-bg: rgba(185, 58, 42, .08);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+::selection { background: rgba(255, 111, 176, .35); color: var(--ink); }
+html { scrollbar-color: var(--line) var(--panel); }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); display: flex; flex-direction: column; caret-color: var(--pink); }
+a { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+a:hover { text-decoration-color: var(--pink); }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 14px 20px 12px; border-bottom: 1px solid var(--line); }
+.title { flex: 1 1 320px; min-width: 0; }
+h1 { font: 500 19px/1.25 var(--font-display); margin: 0 0 4px; letter-spacing: .01em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 72ch; }
+.switches { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; }
+.seg button { font: 500 14px var(--font-body); color: var(--muted); background: transparent; border: 0; padding: 6px 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-selected="true"], .seg button[aria-pressed="true"] { color: var(--chalk); background: var(--blue); }
+.seg.small button { font-size: 13px; padding: 5px 10px; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-selected="true"]:hover, .seg button[aria-pressed="true"]:hover { color: var(--chalk); }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+#view { position: relative; min-height: 360px; overflow: hidden; }
+#view canvas { display: block; width: 100%; height: 100%; }
+.legend { position: absolute; left: 14px; top: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); background: var(--veil); border: 1px solid var(--line); padding: 6px 10px; border-radius: 3px; max-width: calc(100% - 28px); pointer-events: none; }
+.legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+.hint { position: absolute; right: 14px; bottom: 12px; color: var(--muted); font-size: 12px; background: var(--veil); padding: 4px 8px; border-radius: 3px; pointer-events: none; }
+.caption { position: absolute; left: 14px; bottom: 12px; max-width: min(52ch, calc(100% - 28px)); background: var(--veil); border: 1px solid var(--line-strong); border-radius: 3px; padding: 10px 14px; pointer-events: none; }
+.caption[hidden] { display: none; }
+.caption small { display: block; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.caption b { display: block; font: 500 15px/1.3 var(--font-display); margin: 2px 0 4px; }
+.caption span { font-size: 14px; }
+#labels { position: absolute; inset: 0; pointer-events: none; }
+#labels div { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 12px; line-height: 1.2; color: var(--ink); background: var(--veil); border: 1px solid var(--line); border-radius: 2px; padding: 2px 6px; will-change: transform; }
+#labels div[data-kind="pick"] { border-color: var(--pink); }
+#labels div[data-kind="hit"] { border-color: var(--coral); }
+#labels div[data-kind="target"] { border-color: var(--cyan); }
+aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 16px 18px 24px; display: flex; flex-direction: column; gap: 18px; }
+aside h2 { font: 600 15px/1.3 var(--font-body); color: var(--ink); margin: 0 0 8px; text-wrap: balance; }
+aside p { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; counter-reset: step; }
+ol.steps li { counter-increment: step; }
+ol.steps button { display: grid; grid-template-columns: 22px 1fr; gap: 0 8px; width: 100%; text-align: left; font: 14px/1.45 var(--font-body); color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 7px 8px; cursor: pointer; }
+ol.steps button::before { content: counter(step); grid-row: 1 / 3; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+ol.steps button b { color: var(--ink); font-weight: 600; }
+ol.steps button:hover { border-color: var(--line); }
+ol.steps button[aria-pressed="true"] { border-color: var(--line-strong); background: var(--bg); color: var(--ink); }
+ol.steps button[aria-pressed="true"]::before { color: var(--pink-ink); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row + .row { margin-top: 10px; }
+.btn { font: 500 14px var(--font-body); color: var(--ink); background: var(--btn); border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--line-strong); }
+.btn.primary { background: var(--blue); color: var(--chalk); border-color: var(--line-strong); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+.ctl label.slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; font-size: 13px; color: var(--muted); }
+.ctl label.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--pink); }
+.ctl output { color: var(--ink); font-variant-numeric: tabular-nums; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); width: 100%; }
+.check input { accent-color: var(--blue); margin: 0; }
+dl.read { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+dl.read dt { color: var(--muted); }
+dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.note { font-size: 13px; color: var(--note-ink); background: var(--note-bg); border-radius: 3px; padding: 8px 12px; margin: 12px 0 0; }
+.facts { font-size: 13px; color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.facts p { font-size: 13px; }
+.scene[hidden] { display: none; }
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60vh auto; }
+  html, body { height: auto; }
+  aside { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>How the bot flies rings and finds a way through gaps</h1>
+    <p>Both scenes are computed right here with the same formulas as the mod: elytra physics, a few hundred moves tried ahead, a search through 4-block cells</p>
+  </div>
+  <div class="switches">
+    <div class="seg" role="tablist" aria-label="Scene">
+      <button role="tab" id="tab-rings" aria-selected="true" aria-controls="view">Rings</button>
+      <button role="tab" id="tab-maze" aria-selected="false" aria-controls="view">Maze</button>
+    </div>
+    <div class="seg small" role="group" aria-label="Theme">
+      <button data-theme-choice="auto" aria-pressed="true">Auto</button>
+      <button data-theme-choice="dark" aria-pressed="false">Dark</button>
+      <button data-theme-choice="light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+</header>
+<main>
+  <div id="view">
+    <div id="labels" aria-hidden="true"></div>
+    <div class="legend" id="legend"></div>
+    <div class="caption" id="caption" hidden aria-live="polite"><small id="cap-n"></small><b id="cap-t"></b><span id="cap-x"></span></div>
+    <div class="hint">Drag to orbit, scroll to zoom, right-drag to pan</div>
+  </div>
+  <aside>
+    <section>
+      <h2>Step by step</h2>
+      <p>Pick a step to see only its part of the scene</p>
+      <ol class="steps scene" id="steps-rings">
+        <li><button aria-pressed="false"><b>Goal</b><span>The bot is given the ring centres. It does not look for the frames: to it they are just blocks</span></button></li>
+        <li><button aria-pressed="false"><b>Try</b><span>Every 2 ticks it tries about 250 moves: pitch, turn, a rocket now or not. Each is flown 40 ticks (2 s) ahead in the physics model</span></button></li>
+        <li><button aria-pressed="false"><b>Drop</b><span>A try where the 0.6 × 0.6 body touches a block is dropped (coral)</span></button></li>
+        <li><button aria-pressed="false"><b>Score</b><span>Penalties for passing far from the ring centre, for lacking speed or height, and for each rocket. The best try (pink) is flown for 2 ticks, then it all starts over</span></button></li>
+        <li><button aria-pressed="false"><b>Count</b><span>A ring counts when the bot crosses its plane. The miss is how far from the centre it crossed</span></button></li>
+      </ol>
+      <ol class="steps scene" id="steps-maze" hidden>
+        <li><button aria-pressed="false"><b>Grid</b><span>The hall is cut into 4 × 4 × 4 cells. A cell with any block in it is closed (coral)</span></button></li>
+        <li><button aria-pressed="false"><b>Search</b><span>A* from the start through open cells to the goal, 26 neighbours per cell. Climbing costs more than descending, since height is bought with rockets, and a cell next to a wall costs more, since elytra need room</span></button></li>
+        <li><button aria-pressed="false"><b>Chain</b><span>The cells the search settled on, from the start to the goal</span></button></li>
+        <li><button aria-pressed="false"><b>Straighten</b><span>Only the corners a straight flight cannot cut are kept, at most 28 blocks apart</span></button></li>
+        <li><button aria-pressed="false"><b>Fly</b><span>A flight is searched in the cells around the chain with the same physics: a look held 8 ticks, with or without a rocket, room kept from the walls. The rockets (orange) go where the climb to the high gap needs them</span></button></li>
+      </ol>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="s-prev">Back</button>
+        <button class="btn" id="s-next">Next step</button>
+        <button class="btn" id="s-all" disabled>Show all</button>
+      </div>
+    </section>
+
+    <section class="scene ctl" id="ctl-rings">
+      <h2>Flight</h2>
+      <div class="row">
+        <button class="btn primary" id="r-run">Pause</button>
+        <button class="btn" id="r-step">Step 2 ticks</button>
+        <button class="btn" id="r-reset">Restart</button>
+      </div>
+      <div class="row">
+        <label class="slider" for="r-cost">Rocket price, in blocks of progress <output id="r-cost-out">12</output>
+          <input type="range" id="r-cost" min="0" max="60" step="1" value="12"></label>
+        <label class="slider" for="r-speed">Replay speed <output id="r-speed-out">1×</output>
+          <input type="range" id="r-speed" min="0.25" max="2" step="0.25" value="1"></label>
+        <span class="check"><input type="checkbox" id="r-others" checked><label for="r-others">Show the tries it dropped</label></span>
+      </div>
+    </section>
+    <section class="scene ctl" id="ctl-maze" hidden>
+      <h2>Search</h2>
+      <div class="row">
+        <button class="btn primary" id="m-search">Find a way</button>
+        <button class="btn" id="m-reset">Clear</button>
+      </div>
+      <div class="row">
+        <span class="check"><input type="checkbox" id="m-closed" checked><label for="m-closed">Show closed cells</label></span>
+        <span class="check"><input type="checkbox" id="m-seen" checked><label for="m-seen">Show where the search looked</label></span>
+      </div>
+    </section>
+
+    <section class="scene" id="read-rings">
+      <h2>Instruments</h2>
+      <dl class="read">
+        <dt>Tick</dt><dd id="rd-tick">0</dd>
+        <dt>Speed, blocks per tick</dt><dd id="rd-speed">0</dd>
+        <dt>Height</dt><dd id="rd-h">0</dd>
+        <dt>Ring</dt><dd id="rd-ring">1 of 4</dd>
+        <dt>Misses, blocks</dt><dd id="rd-miss">none yet</dd>
+        <dt>Rockets used</dt><dd id="rd-rk">0</dd>
+        <dt>Tries: all, would hit</dt><dd id="rd-cand">0, 0</dd>
+        <dt>Chosen: pitch, rocket</dt><dd id="rd-pick">none yet</dd>
+      </dl>
+    </section>
+    <section class="scene" id="read-maze" hidden>
+      <h2>Instruments</h2>
+      <dl class="read">
+        <dt>Cells in the hall</dt><dd id="md-cells">0</dd>
+        <dt>Closed</dt><dd id="md-closed">0</dd>
+        <dt>Cells the search looked at</dt><dd id="md-seen">0</dd>
+        <dt>Route, cells</dt><dd id="md-path">not searched</dd>
+        <dt>Corners kept</dt><dd id="md-corners">not searched</dd>
+        <dt>Flight planned, ticks</dt><dd id="md-flight">not searched</dd>
+        <dt>Rockets in it</dt><dd id="md-rockets">not searched</dd>
+        <dt>Planned in</dt><dd id="md-ms">not searched</dd>
+      </dl>
+      <p class="facts">The corners alone were not enough: flown as rings, the bot ran out of speed on the climb from the low gap to the high one. On the test bench, ten flights each, a pass being a landing inside the hall: the corners as rings <b>5</b> of 10, the planned flight <b>9</b> of 10, and <b>10</b> of 10 at the survival rocket price</p>
+    </section>
+
+    <section class="facts">
+      <h2>The physics model</h2>
+      <p>Each tick repeats the game: the glide first, then the rocket's pull. Checked against <b>848</b> ticks of real flight, the speed differs from the game by <b>0.0000</b> blocks per tick when gliding and <b>0.0001</b> under a rocket (median)</p>
+      <p>Code: <a href="https://github.com/alteralto/unionclef/tree/pyhtun">UnionClef fork, branch pyhtun</a> and the agent in <a href="https://github.com/alteralto/persona-agent">persona-agent</a></p>
+    </section>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+// ---------- physics: ElytraPhysics.step, line for line ----------
+const RAD = Math.PI / 180;
+function look(yaw, pitch) {
+  const p = pitch * RAD, y = -yaw * RAD;
+  return [Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
+}
+function step(v, yaw, pitch, rocket) {
+  const [lx, ly, lz] = look(yaw, pitch);
+  let [mx, my, mz] = v;
+  const pr = pitch * RAD, lh = Math.hypot(lx, lz), flat = Math.hypot(mx, mz), cp2 = Math.cos(pr) ** 2;
+  my += -0.08 + cp2 * 0.06;
+  if (my < 0 && lh > 0) { const lift = my * -0.1 * cp2; my += lift; mx += lx * lift / lh; mz += lz * lift / lh; }
+  if (pr < 0 && lh > 0) { const c = flat * -Math.sin(pr) * 0.04; my += c * 3.2; mx -= lx * c / lh; mz -= lz * c / lh; }
+  if (lh > 0) { mx += (lx / lh * flat - mx) * 0.1; mz += (lz / lh * flat - mz) * 0.1; }
+  mx *= 0.99; my *= 0.98; mz *= 0.99;
+  if (rocket) { mx += lx * 0.1 + (lx * 1.5 - mx) * 0.5; my += ly * 0.1 + (ly * 1.5 - my) * 0.5; mz += lz * 0.1 + (lz * 1.5 - mz) * 0.5; }
+  return [mx, my, mz];
+}
+
+// ---------- theme: one palette for the page and the 3D scenes ----------
+const PALETTES = {
+  dark: { bg: 0x0b1330, ground: 0x101b42, grid: 0x24315e, slate: 0x7c89aa, coral: 0xef6b5b, cyan: 0x4cc8e0, pick: 0xff6fb0,
+    trail: 0xb9c6d8, rocket: 0xff8a2a, passed: 0x5b6b80, glass: 0x9fd6ff, glassOp: 0.06, glassEdge: 0x6fa8c8, seen: 0x8fa3bf,
+    body: 0x3f7fd0, wing: 0x9aa7b8, start: 0xffffff, sky: 0xcfe0ff, earth: 0x1a2230, hemi: 0.9, closedOp: 0.11 },
+  light: { bg: 0xf4f6fa, ground: 0xe6eaf2, grid: 0xc9d1e2, slate: 0x7a85a3, coral: 0xd0503e, cyan: 0x0e8eb0, pick: 0xff4f9e,
+    trail: 0x4b5675, rocket: 0xe06a10, passed: 0xa9b3c8, glass: 0x1c3f94, glassOp: 0.035, glassEdge: 0x5a7fb0, seen: 0x6d7fa3,
+    body: 0x1c3f94, wing: 0x8f9ab0, start: 0x0d1838, sky: 0xffffff, earth: 0xb8c2d6, hemi: 1.0, closedOp: 0.14 }
+};
+let P = PALETTES[document.documentElement.dataset.theme] || PALETTES.dark;
+const hex = c => "#" + c.toString(16).padStart(6, "0");
+const sysLight = matchMedia("(prefers-color-scheme: light)");
+// a link may carry ?theme=, ?scene= and ?step= to open on one view
+const QS = new URLSearchParams(location.search);
+// a sandboxed frame may refuse storage; the choice then lasts until the page is closed
+const store = {
+  get() { try { return localStorage.getItem("theme"); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem("theme", v); } catch (e) {} }
+};
+let themeChoice = /^(auto|dark|light)$/.test(QS.get("theme") || "") ? QS.get("theme") : store.get() || "auto";
+
+// ---------- shared 3D setup ----------
+const view = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+view.prepend(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+const themed = [];   // [object, apply(P)] pairs repainted when the theme changes
+function makeScene() {
+  const s = new THREE.Scene();
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1); s.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(60, 120, 40); s.add(sun);
+  themed.push([s, p => { s.background = new THREE.Color(p.bg); hemi.color.setHex(p.sky); hemi.groundColor.setHex(p.earth); hemi.intensity = p.hemi; }]);
+  return s;
+}
+function floor(scene, w, d, cx) {
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial());
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, 0, 0); scene.add(ground);
+  let grid = null;
+  themed.push([ground, p => {
+    ground.material.color.setHex(p.ground);
+    if (grid) scene.remove(grid);
+    grid = new THREE.GridHelper(w, w / 4, p.grid, p.grid); grid.position.set(cx, 0.01, 0); scene.add(grid);
+  }]);
+}
+function voxels(scene, list, color, opacity) {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color, transparent: opacity < 1, opacity });
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
+  const m = new THREE.Matrix4();
+  list.forEach((b, i) => { m.makeTranslation(b[0] + 0.5, b[1] + 0.5, b[2] + 0.5); mesh.setMatrixAt(i, m); });
+  mesh.count = list.length;
+  scene.add(mesh);
+  return mesh;
+}
+function polyline(points, color, opacity = 1) {
+  const g = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+  return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
+}
+function tube(points, color, r = 0.18) {
+  if (points.length < 2) return new THREE.Object3D();
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+  return new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, points.length * 2), r, 6, false),
+    new THREE.MeshBasicMaterial({ color }));
+}
+// a layer is rebuilt every redraw: free its GPU buffers, or a long run exhausts the context
+function drop(scene, layer) {
+  if (!layer) return;
+  scene.remove(layer);
+  layer.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+}
+function setLegend(items) {
+  document.getElementById("legend").innerHTML =
+    items.map(([c, t]) => `<span><i style="background:${hex(c)}"></i>${t}</span>`).join("");
+}
+
+// ---------- labels: HTML tags pinned to points of the scene ----------
+const labelBox = document.getElementById("labels");
+const labels = { rings: [], maze: [] };
+const pool = [];
+const tmp = new THREE.Vector3();
+const RANK = { pick: 0, target: 1, hit: 1 };
+function placeLabels() {
+  const list = labels[current].map((l, i) => [l, i]).sort((a, b) => (RANK[a[0].kind] ?? 2) - (RANK[b[0].kind] ?? 2) || a[1] - b[1]);
+  const w = view.clientWidth, h = view.clientHeight, taken = [];
+  while (pool.length < list.length) { const d = document.createElement("div"); labelBox.appendChild(d); pool.push(d); }
+  pool.forEach((d, i) => {
+    const l = list[i] && list[i][0];
+    if (!l) { d.style.display = "none"; return; }
+    tmp.set(l.at[0], l.at[1], l.at[2]).project(camera);
+    if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) { d.style.display = "none"; return; }
+    d.style.display = "";
+    if (d.textContent !== l.text) d.textContent = l.text;
+    d.dataset.kind = l.kind || "";
+    // the more important tags keep their place, the rest step up until they no longer cover one
+    const bw = d.offsetWidth, bh = d.offsetHeight;
+    let x = (tmp.x + 1) / 2 * w - bw / 2, y = (1 - tmp.y) / 2 * h - bh - 8;
+    for (let k = 0; k < 8 && taken.some(r => x < r[2] && x + bw > r[0] && y < r[3] && y + bh > r[1]); k++) y -= bh + 3;
+    taken.push([x, y, x + bw, y + bh]);
+    d.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+  });
+}
+
+// ---------- steps: one part of the scene at a time ----------
+const STEPS = { rings: [], maze: [] };
+for (const id of ["rings", "maze"])
+  document.querySelectorAll(`#steps-${id} button`).forEach((b, i) => {
+    STEPS[id].push({ title: b.querySelector("b").textContent, text: b.querySelector("span").textContent, el: b });
+    b.onclick = () => setFocus(id, focus[id] === i + 1 ? 0 : i + 1);
+  });
+const focus = { rings: 0, maze: 0 };
+function setFocus(id, i) {
+  focus[id] = i;
+  STEPS[id].forEach((s, k) => s.el.setAttribute("aria-pressed", k + 1 === i));
+  showCaption();
+  if (id === "rings") {
+    if (i) setRunning(false);
+    redrawRings();
+  } else {
+    if (i >= 2 && !mazeRun) search();
+    if (i >= 3 || reduced) mazeAnim = 1e9;
+    else if (i === 2) mazeAnim = 0;
+    drawMaze();
+  }
+}
+function showCaption() {
+  const i = focus[current], cap = document.getElementById("caption"), n = STEPS[current].length;
+  document.getElementById("s-all").disabled = !i;
+  document.getElementById("s-prev").disabled = i <= 1;
+  document.getElementById("s-next").disabled = i >= n;
+  document.getElementById("s-next").textContent = i ? "Next step" : "Step by step";
+  cap.hidden = !i;
+  if (!i) return;
+  const s = STEPS[current][i - 1];
+  document.getElementById("cap-n").textContent = `Step ${i} of ${n}`;
+  document.getElementById("cap-t").textContent = s.title;
+  document.getElementById("cap-x").textContent = s.text;
+}
+document.getElementById("s-prev").onclick = () => setFocus(current, Math.max(1, focus[current] - 1));
+document.getElementById("s-next").onclick = () => setFocus(current, Math.min(STEPS[current].length, focus[current] + 1));
+document.getElementById("s-all").onclick = () => setFocus(current, 0);
+
+// ======================= RINGS =======================
+const RINGS = [[40, 14, 0, 0xd9534f], [80, 20, 6, 0xf0883e], [120, 12, -5, 0xe0b93a], [160, 18, 2, 0x6fb860]];
+const ringScene = makeScene();
+const solidR = new Set();
+const key = (x, y, z) => x + "," + y + "," + z;
+(function buildRings() {
+  floor(ringScene, 260, 80, 90);
+  for (const [x, y, z, col] of RINGS) {
+    const blocks = [];
+    for (let dy = -4; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) {
+      if (Math.abs(dy) <= 3 && Math.abs(dz) <= 3) continue;
+      blocks.push([x, y + dy, z + dz]); solidR.add(key(x, y + dy, z + dz));
+    }
+    voxels(ringScene, blocks, col, 1);
+  }
+})();
+function blockedR(p) {
+  if (p[1] < 0) return true;
+  for (let x = Math.floor(p[0] - 0.3); x <= Math.floor(p[0] + 0.3); x++)
+    for (let y = Math.floor(p[1]); y <= Math.floor(p[1] + 0.6); y++)
+      for (let z = Math.floor(p[2] - 0.3); z <= Math.floor(p[2] + 0.3); z++)
+        if (solidR.has(key(x, y, z))) return true;
+  return false;
+}
+function predict(pos, vel, yaw, pitch, ticks, pull) {
+  const pts = [pos]; let p = pos, v = vel;
+  for (let i = 0; i < ticks; i++) {
+    v = step(v, yaw, pitch, i < pull);
+    const n = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+    if (blockedR(n)) return { pts, hit: true };
+    p = n; pts.push(p);
+  }
+  return { pts, hit: false };
+}
+function closest(pts, c) {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = [pts[i - 1][0], pts[i - 1][1] + 0.3, pts[i - 1][2]], b = pts[i];
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2;
+    let t = l2 < 1e-9 ? 0 : ((c[0] - a[0]) * ab[0] + (c[1] - a[1]) * ab[1] + (c[2] - a[2]) * ab[2]) / l2;
+    t = Math.max(0, Math.min(1, t));
+    best = Math.min(best, Math.hypot(a[0] + ab[0] * t - c[0], a[1] + ab[1] * t - c[1], a[2] + ab[2] * t - c[2]));
+  }
+  return best;
+}
+// ElytraSolver: coarse pass, then a finer pass around the winner
+function solve(pos, vel, rocketLeft, goal, through, cost, mayFire) {
+  const direct = Math.atan2(-(goal[0] - pos[0]), goal[2] - pos[2]) / RAD;
+  const d0 = Math.hypot(goal[0] - pos[0], goal[2] - pos[2]);
+  const eWant = goal[1] + 1.5 * 1.5 / 0.16;
+  let best = null, latest = null; const all = [], hits = [];
+  function fly(yaw, pitch, fire, dy) {
+    pitch = Math.max(-89, Math.min(89, pitch));
+    const r = predict(pos, vel, yaw, pitch, 40, fire ? 20 : rocketLeft);
+    if (r.hit) { hits.push(r.pts); if (!latest || r.pts.length > latest.pts.length) latest = { yaw, pitch, fire, pts: r.pts, score: -1e9 }; return; }
+    const e = r.pts[r.pts.length - 1], pe = r.pts[r.pts.length - 2] || pos;
+    const ev = [e[0] - pe[0], e[1] - pe[1], e[2] - pe[2]];
+    const progress = d0 - Math.hypot(goal[0] - e[0], goal[2] - e[2]);
+    const deficit = Math.max(0, eWant - (e[1] + (ev[0] ** 2 + ev[1] ** 2 + ev[2] ** 2) / 0.16));
+    const score = progress - 0.3 * Math.abs(goal[1] - e[1]) - 0.8 * deficit - (fire ? cost : 0)
+      - Math.abs(dy) * 0.02 - (through ? 8 * closest(r.pts, through) : 0);
+    const c = { yaw, pitch, fire, pts: r.pts, score }; all.push(c);
+    if (!best || score > best.score) best = c;
+  }
+  for (let fire = 0; fire <= (mayFire && rocketLeft === 0 ? 1 : 0); fire++)
+    for (const dy of [0, -10, 10, -25, 25, -50, 50])
+      for (let pitch = -50; pitch <= 40; pitch += 6) fly(direct + dy, pitch, fire === 1, dy);
+  if (best) {
+    const w = best;
+    for (let dp = -4; dp <= 4; dp += 2) for (const dy of [-5, 0, 5]) if (dp || dy) fly(w.yaw + dy, w.pitch + dp, w.fire, dy);
+  }
+  return { best: best || latest, all, hits, cornered: !best };
+}
+
+const R = {};
+let ringLayer = null;
+function ringReset() {
+  R.pos = [0, 12, 0.5]; R.vel = [1.3, -0.05, 0]; R.yaw = -90; R.pitch = 0;
+  R.tick = 0; R.rocketLeft = 0; R.lastRocket = -100; R.rockets = 0; R.ring = 0; R.miss = []; R.trail = [R.pos];
+  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.crash = false; R.after = 0; R.wait = 0;
+  redrawRings();
+}
+function centre(i) { const r = RINGS[i]; return [r[0] + 0.5, r[1] + 0.5, r[2] + 0.5]; }
+function ringTick(cost) {
+  if (R.done) return;
+  if (R.tick - R.planTick >= 2) {
+    const i = R.ring;
+    const through = i < RINGS.length ? centre(i) : null;
+    const goal = i + 1 < RINGS.length ? centre(i + 1) : (i < RINGS.length ? [centre(i)[0] + 40, centre(i)[1], centre(i)[2]] : [R.pos[0] + 60, R.pos[1], R.pos[2]]);
+    const since = R.tick - R.lastRocket;
+    R.plan = solve(R.pos, R.vel, Math.max(0, 20 - since), goal, through, cost, since >= 20);
+    R.planTick = R.tick;
+    let fire = R.plan.best && R.plan.best.fire && (!R.plan.cornered || since >= 40);
+    if (!fire && Math.hypot(R.vel[0], R.vel[2]) < 0.9 && since >= 20) fire = true; // a stalling glide gets a rocket
+    if (fire) { R.rocketLeft = 20; R.lastRocket = R.tick; R.rockets++; R.rocketMarks.push(R.pos); }
+  }
+  const b = R.plan && R.plan.best;
+  if (b) {
+    let dyaw = ((b.yaw - R.yaw + 540) % 360) - 180;
+    R.yaw += Math.max(-25, Math.min(25, dyaw));
+    R.pitch += Math.max(-15, Math.min(15, b.pitch - R.pitch));
+  }
+  R.vel = step(R.vel, R.yaw, R.pitch, R.rocketLeft > 0);
+  if (R.rocketLeft > 0) R.rocketLeft--;
+  const n = [R.pos[0] + R.vel[0], R.pos[1] + R.vel[1], R.pos[2] + R.vel[2]];
+  if (blockedR(n)) { R.done = true; R.crash = true; return; }
+  // ring crossed? its plane is x = const
+  if (R.ring < RINGS.length) {
+    const c = centre(R.ring);
+    if (R.pos[0] < c[0] && n[0] >= c[0]) {
+      const t = (c[0] - R.pos[0]) / (n[0] - R.pos[0]);
+      const y = R.pos[1] + 0.3 + (n[1] - R.pos[1]) * t, z = R.pos[2] + (n[2] - R.pos[2]) * t;
+      R.miss.push(Math.max(Math.abs(y - c[1]), Math.abs(z - c[2])).toFixed(1));
+      R.ring++;
+    }
+  } else if (++R.after > 60) R.done = true;
+  R.pos = n; R.tick++;
+  if (R.tick % 2 === 0) R.trail.push(R.pos);
+}
+function redrawRings() {
+  drop(ringScene, ringLayer);
+  ringLayer = new THREE.Group();
+  const F = focus.rings, others = document.getElementById("r-others").checked;
+  const showGrey = F ? F === 2 || F === 4 : others, showHits = F ? F === 2 || F === 3 : others;
+  const showPick = !F || F === 4, showTrail = !F || F === 1 || F === 5;
+  const L = [];
+  if (R.plan && showGrey) {
+    const all = R.plan.all, n = all.length;
+    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 70))) ringLayer.add(polyline(all[i].pts, P.slate, F === 4 ? 0.22 : 0.45));
+  }
+  if (R.plan && showHits) {
+    const hits = R.plan.hits;
+    for (let i = 0; i < hits.length; i += Math.max(1, Math.floor(hits.length / 40))) ringLayer.add(polyline(hits[i], P.coral, F === 3 ? 0.95 : 0.7));
+    if (hits.length && F === 3) { const h = hits.reduce((a, b) => b.length > a.length ? b : a); const e = h[h.length - 1]; L.push({ at: [e[0], e[1] + 0.6, e[2]], text: "would hit a block here", kind: "hit" }); }
+  }
+  if (R.plan && F === 2 && R.plan.all.length) {
+    const far = R.plan.all.reduce((a, b) => b.pts[b.pts.length - 1][0] > a.pts[a.pts.length - 1][0] ? b : a), e = far.pts[far.pts.length - 1];
+    L.push({ at: [e[0], e[1] + 0.6, e[2]], text: `${R.plan.all.length + R.plan.hits.length} tries, 2 s ahead each` });
+  }
+  if (R.plan && R.plan.best && showPick) {
+    const pts = R.plan.best.pts;
+    ringLayer.add(tube(pts.map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.14));
+    const e = pts[pts.length - 1];
+    L.push({ at: [e[0], e[1] + 0.9, e[2]], text: `chosen: pitch ${R.plan.best.pitch.toFixed(0)}°, ${R.plan.best.fire ? "rocket now" : "no rocket"}`, kind: "pick" });
+  }
+  if (R.trail.length > 1 && showTrail) ringLayer.add(tube(R.trail.map(p => [p[0], p[1] + 0.3, p[2]]), P.trail, 0.09));
+  if (!F || F === 5) for (const p of R.rocketMarks) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
+    m.position.set(p[0], p[1] + 0.3, p[2]); ringLayer.add(m);
+  }
+  RINGS.forEach((r, i) => {
+    const c = centre(i), next = i === R.ring;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(next && F === 1 ? 0.6 : 0.35, 12, 8), new THREE.MeshBasicMaterial({ color: i < R.ring ? P.passed : P.cyan }));
+    m.position.set(c[0], c[1], c[2]); ringLayer.add(m);
+    const missed = i < R.miss.length ? `, missed by ${R.miss[i]}` : next ? ", next" : "";
+    L.push({ at: [c[0], c[1] + 5, c[2]], text: `Ring ${i + 1}${missed}`, kind: next ? "target" : "" });
+  });
+  // the glider: a body and two wings, turned by yaw and pitch
+  const bot = new THREE.Group();
+  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: P.body })));
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: P.wing }));
+  wing.position.z = -0.2; bot.add(wing);
+  bot.position.set(R.pos[0], R.pos[1] + 0.3, R.pos[2]);
+  bot.rotation.order = "YXZ"; bot.rotation.y = -R.yaw * RAD; bot.rotation.x = R.pitch * RAD;
+  ringLayer.add(bot);
+  L.push({ at: [R.pos[0], R.pos[1] + 1.6, R.pos[2]], text: R.crash ? "bot, crashed" : "bot" });
+  labels.rings = L;
+  ringScene.add(ringLayer);
+  const sp = Math.hypot(R.vel[0], R.vel[1], R.vel[2]);
+  document.getElementById("rd-tick").textContent = R.tick;
+  document.getElementById("rd-speed").textContent = sp.toFixed(2);
+  document.getElementById("rd-h").textContent = R.pos[1].toFixed(1);
+  document.getElementById("rd-ring").textContent = R.crash ? "crashed" : R.ring >= RINGS.length ? "all passed" : (R.ring + 1) + " of " + RINGS.length;
+  document.getElementById("rd-miss").textContent = R.miss.length ? R.miss.join(", ") : "none yet";
+  document.getElementById("rd-rk").textContent = R.rockets;
+  document.getElementById("rd-cand").textContent = R.plan ? (R.plan.all.length + R.plan.hits.length) + ", " + R.plan.hits.length : "0, 0";
+  document.getElementById("rd-pick").textContent = R.plan && R.plan.best
+    ? R.plan.best.pitch.toFixed(0) + "°, " + (R.plan.best.fire ? "yes" : "no") : "none yet";
+}
+function ringLegend() {
+  setLegend([[P.pick, "chosen glide, next 2 s"], [P.slate, "tries it dropped"], [P.coral, "would hit"], [P.trail, "flown so far"], [P.rocket, "rocket fired"], [P.cyan, "ring centre"]]);
+}
+
+// ======================= MAZE =======================
+// A glass hall 120 x 20 x 24 blocks, open at x = 0, three walls with one 7x7 gap each: low left, high right, middle
+const H = { x0: 0, x1: 120, y1: 20, z0: -12, z1: 12 };
+const WALLS = [[30, 0xd9534f, -10, 2], [60, 0x4f7fd9, 4, 12], [90, 0x5fb35f, -3, 7]]; // x, colour, gap z from, gap y from
+const GAP_NAMES = ["low gap, left", "high gap, right", "middle gap"];
+const mazeScene = makeScene();
+function solidM(x, y, z) {
+  if (y < 1) return true;
+  if (x < H.x0) return false;                       // outside, before the way in
+  if (x > H.x1 || y >= H.y1 || z < H.z0 || z > H.z1) return true;
+  for (const [wx, , gz, gy] of WALLS) {
+    if (x === wx || x === wx + 1) return !(z >= gz && z < gz + 7 && y >= gy && y < gy + 7);
+  }
+  return false;
+}
+(function buildMaze() {
+  floor(mazeScene, 200, 80, 56);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(H.x1 - H.x0, H.y1 - 1, H.z1 - H.z0 + 1),
+    new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
+  glass.position.set((H.x0 + H.x1) / 2, (H.y1 + 1) / 2, 0.5); mazeScene.add(glass);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(glass.geometry), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 }));
+  edges.position.copy(glass.position); mazeScene.add(edges);
+  themed.push([glass, p => { glass.material.color.setHex(p.glass); glass.material.opacity = p.glassOp; edges.material.color.setHex(p.glassEdge); }]);
+  for (const [wx, col] of WALLS) {
+    const blocks = [];
+    for (let x = wx; x <= wx + 1; x++) for (let y = 1; y < H.y1; y++) for (let z = H.z0; z <= H.z1; z++)
+      if (solidM(x, y, z)) blocks.push([x, y, z]);
+    voxels(mazeScene, blocks, col, 1);
+  }
+})();
+const CELL = 4;
+const START = [-14, 10, 0.5], GOAL = [114, 4, 0.5];
+const cellOf = v => Math.floor(v / CELL);
+const ckey = (x, y, z) => x + "|" + y + "|" + z;
+const openCache = new Map();
+function cellOpen(cx, cy, cz) {
+  const k = ckey(cx, cy, cz);
+  if (openCache.has(k)) return openCache.get(k);
+  let open = true;
+  for (let x = cx * CELL; x < cx * CELL + CELL && open; x++)
+    for (let y = cy * CELL; y < cy * CELL + CELL && open; y++)
+      for (let z = cz * CELL; z < cz * CELL + CELL && open; z++)
+        if (solidM(x, y, z)) open = false;
+  openCache.set(k, open); return open;
+}
+// AirRoute.find: A* on the 26 neighbours, climb dearer than descent, a cell next to a closed one dearer
+function airRoute() {
+  const s = START.map(cellOf), g = GOAL.map(cellOf);
+  const yMin = 0, yMax = cellOf(H.y1 + 8), xMin = cellOf(-24), xMax = cellOf(H.x1 + 8), zMin = cellOf(-30), zMax = cellOf(30);
+  const h = (x, y, z) => Math.hypot(x - g[0], y - g[1], z - g[2]);
+  const crowd = (x, y, z) => [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].filter(d => !cellOpen(x + d[0], y + d[1], z + d[2])).length * 0.8;
+  const best = new Map(), seen = [];
+  const open = [{ x: s[0], y: s[1], z: s[2], g: 0, f: h(...s), parent: null }];
+  best.set(ckey(...s), 0);
+  let found = null;
+  while (open.length && seen.length < 20000) {
+    let bi = 0; for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
+    const n = open.splice(bi, 1)[0];
+    if (n.g > (best.get(ckey(n.x, n.y, n.z)) ?? Infinity)) continue;
+    seen.push([n.x, n.y, n.z]);
+    if (n.x === g[0] && n.y === g[1] && n.z === g[2]) { found = n; break; }
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (!dx && !dy && !dz) continue;
+      const x = n.x + dx, y = n.y + dy, z = n.z + dz;
+      if (y < yMin || y > yMax || x < xMin || x > xMax || z < zMin || z > zMax) continue;
+      const isGoal = x === g[0] && y === g[1] && z === g[2];
+      if (!isGoal && !cellOpen(x, y, z)) continue;
+      if ((dx && !cellOpen(n.x + dx, n.y, n.z)) || (dy && !cellOpen(n.x, n.y + dy, n.z)) || (dz && !cellOpen(n.x, n.y, n.z + dz))) {
+        if ((dx !== 0) + (dy !== 0) + (dz !== 0) > 1) continue;   // no cutting a closed cell's corner
+      }
+      const cost = Math.hypot(dx, dy, dz) + (dy > 0 ? 2 : dy < 0 ? -0.3 : 0) + crowd(x, y, z);
+      const ng = n.g + cost, k = ckey(x, y, z);
+      if (ng < (best.get(k) ?? Infinity)) { best.set(k, ng); open.push({ x, y, z, g: ng, f: ng + h(x, y, z), parent: n }); }
+    }
+  }
+  if (!found) return { seen, path: null, corners: null };
+  const path = []; for (let n = found; n; n = n.parent) path.unshift([n.x * CELL + 2, n.y * CELL + 2, n.z * CELL + 2]);
+  path[path.length - 1] = GOAL;
+  // string pulling, a leg at most 28 blocks, 1.5 blocks of room along it
+  const clear = (a, b) => {
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], n = Math.max(1, Math.ceil(Math.hypot(...d)));
+    for (let i = 0; i <= n; i++) {
+      const p = [a[0] + d[0] * i / n, a[1] + d[1] * i / n, a[2] + d[2] * i / n];
+      for (const ox of [-1.5, 0, 1.5]) for (const oy of [-1, 0.25, 1.5]) for (const oz of [-1.5, 0, 1.5])
+        if (solidM(Math.floor(p[0] + ox), Math.floor(p[1] + oy), Math.floor(p[2] + oz))) return false;
+    }
+    return true;
+  };
+  const corners = []; let from = START, i = 0;
+  while (i < path.length) {
+    let far = i;
+    for (let j = path.length - 1; j > i; j--) if (Math.hypot(path[j][0] - from[0], path[j][1] - from[1], path[j][2] - from[2]) <= 28 && clear(from, path[j])) { far = j; break; }
+    corners.push(path[far]); from = path[far]; i = far + 1;
+  }
+  return { seen, path, corners };
+}
+// AirPlan: a flight inside the corridor (open cells within two of the chain), through the same
+// physics. A move holds one look for 8 ticks, turned no faster than the bot turns, with or without a
+// fresh rocket; a move that comes within a block of a wall or leaves the corridor is out. Weighted A*
+// on ticks plus a rocket's price, the heuristic being the way left at top speed and the rockets the
+// energy (height + v^2/0.16) cannot do without.
+function planFlight(run) {
+  if (!run.path) return null;
+  const t0 = performance.now();
+  const chain = run.path.map(p => p.map(cellOf));
+  const inC = new Set();
+  for (const [x, y, z] of chain)
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++)
+      if (cellOpen(x + dx, y + dy, z + dz)) inC.add(ckey(x + dx, y + dy, z + dz));
+  const g = chain[chain.length - 1];
+  inC.add(ckey(...g));
+  const dist = new Map([[ckey(...g), 0]]), q = [[0, g]];
+  while (q.length) {
+    let bi = 0; for (let i = 1; i < q.length; i++) if (q[i][0] < q[bi][0]) bi = i;
+    const [d, c] = q.splice(bi, 1)[0];
+    if (d > dist.get(ckey(...c))) continue;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (!dx && !dy && !dz) continue;
+      const n = [c[0] + dx, c[1] + dy, c[2] + dz], k = ckey(...n);
+      if (!inC.has(k)) continue;
+      const nd = d + CELL * Math.hypot(dx, dy, dz);
+      if (nd < (dist.get(k) ?? Infinity)) { dist.set(k, nd); q.push([nd, n]); }
+    }
+  }
+  const toGo = p => dist.get(ckey(cellOf(p[0]), cellOf(p[1]), cellOf(p[2]))) ?? -1;
+  const hits = (a, b, m) => {
+    for (let x = Math.floor(Math.min(a[0], b[0]) - 0.3 - m); x <= Math.floor(Math.max(a[0], b[0]) + 0.3 + m); x++)
+      for (let y = Math.floor(Math.min(a[1], b[1]) - m); y <= Math.floor(Math.max(a[1], b[1]) + 0.6 + m); y++)
+        for (let z = Math.floor(Math.min(a[2], b[2]) - 0.3 - m); z <= Math.floor(Math.max(a[2], b[2]) + 0.3 + m); z++)
+          if (solidM(x, y, z)) return true;
+    return false;
+  };
+  const RT = 8, PULL = 25, W = 2.5, M = 1.0;
+  const heading = (v, f) => Math.hypot(v[0], v[2]) > 0.05 ? Math.atan2(-v[0], v[2]) / RAD : f;
+  const wrap = a => ((a + 540) % 360) - 180;
+  const h = (p, v, rl) => {
+    const d0 = toGo(p); if (d0 < 0) return Infinity;
+    const d = Math.max(d0, Math.hypot(GOAL[0] - p[0], GOAL[1] - p[1], GOAL[2] - p[2]));
+    const short = GOAL[1] + 0.099 * d - (p[1] + (v[0] ** 2 + v[1] ** 2 + v[2] ** 2) / 0.16 + rl * 2.25);
+    return d / 1.8 + (short > 0 ? Math.ceil(short / 45) * RT : 0);
+  };
+  const key = s => [Math.floor(s.p[0] / 2), Math.floor(s.p[1] / 2), Math.floor(s.p[2] / 2), Math.round(heading(s.v, s.yaw) / 20),
+    Math.floor(Math.hypot(...s.v) / 0.3), s.rl > 0 ? 1 : 0].join(",");
+  const s0 = { p: START, v: [1.3, -0.05, 0], yaw: -90, pitch: 0, rl: 0, g: 0, rockets: 0, parent: null, act: null };
+  s0.f = W * h(s0.p, s0.v, 0);
+  // a binary heap on f
+  const heap = [s0], push = x => { heap.push(x); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j].f <= heap[i].f) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l].f < heap[m].f) m = l; if (r < heap.length && heap[r].f < heap[m].f) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
+  const seen = new Map();
+  let end = null, expanded = 0;
+  while (heap.length && expanded < 20000 && !end) {
+    const s = pop();
+    const k = key(s);
+    if ((seen.get(k) ?? Infinity) <= s.g) continue;
+    seen.set(k, s.g); expanded++;
+    const hd = heading(s.v, s.yaw);
+    for (let fire = 0; fire <= (s.rl === 0 ? 1 : 0) && !end; fire++)
+      for (const dy of [-50, -25, -10, 0, 10, 25, 50]) for (const tp of [-50, -30, -15, 0, 15, 35]) {
+        let p = s.p, v = s.v, yaw = s.yaw, pitch = s.pitch, rl = fire ? PULL : s.rl, ok = true, done = false, t = 0;
+        for (; t < 8; t++) {
+          yaw += Math.max(-25, Math.min(25, wrap(hd + dy - yaw)));
+          pitch += Math.max(-15, Math.min(15, tp - pitch));
+          v = step(v, yaw, pitch, rl > 0); if (rl > 0) rl--;
+          const n = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+          if (toGo(n) < 0 || hits(p, n, s === s0 ? 0 : M)) { ok = false; break; }
+          p = n;
+          if (Math.hypot(GOAL[0] - p[0], GOAL[1] - p[1], GOAL[2] - p[2]) < 5) { done = true; t++; break; }
+        }
+        if (!ok) continue;
+        const c = { p, v, yaw, pitch, rl, g: s.g + t + (fire ? RT : 0), rockets: s.rockets + fire, parent: s, act: { ty: hd + dy, tp, fire, t } };
+        if (done) { end = c; break; }
+        c.f = c.g + W * h(p, v, rl);
+        if ((seen.get(key(c)) ?? Infinity) > c.g) push(c);
+      }
+  }
+  if (!end) return { pts: null, ms: performance.now() - t0, expanded };
+  // the moves, flown again tick by tick
+  const acts = []; for (let n = end; n.parent; n = n.parent) acts.unshift(n.act);
+  const pts = [{ p: START, fire: false }];
+  let p = START, v = s0.v, yaw = -90, pitch = 0, rl = 0;
+  for (const a of acts) {
+    if (a.fire) rl = PULL;
+    for (let t = 0; t < a.t; t++) {
+      yaw += Math.max(-25, Math.min(25, wrap(a.ty - yaw)));
+      pitch += Math.max(-15, Math.min(15, a.tp - pitch));
+      v = step(v, yaw, pitch, rl > 0); if (rl > 0) rl--;
+      p = [p[0] + v[0], p[1] + v[1], p[2] + v[2]];
+      pts.push({ p, fire: a.fire && t === 0 });
+    }
+  }
+  return { pts, rockets: end.rockets, ms: performance.now() - t0, expanded };
+}
+
+let mazeLayer = null, closedMesh = null, mazeRun = null, mazeAnim = 0, seenMesh = null;
+// run the search once; the cells it looked at go into one mesh that the animation reveals by count
+function search() {
+  mazeRun = airRoute();
+  mazeRun.flight = planFlight(mazeRun);
+  mazeAnim = reduced ? 1e9 : 0;
+  if (seenMesh) { mazeScene.remove(seenMesh); seenMesh.geometry.dispose(); seenMesh.material.dispose(); }
+  const n = mazeRun.seen.length;
+  seenMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL * 0.5, CELL * 0.5, CELL * 0.5),
+    new THREE.MeshBasicMaterial({ color: P.seen, transparent: true, opacity: 0.35 }), Math.max(1, n));
+  const m = new THREE.Matrix4();
+  mazeRun.seen.forEach((c, i) => { m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); seenMesh.setMatrixAt(i, m); });
+  seenMesh.count = 0;
+  mazeScene.add(seenMesh);
+}
+(function closedCells() {
+  const list = []; let total = 0;
+  for (let cx = cellOf(H.x0); cx <= cellOf(H.x1); cx++) for (let cy = 0; cy < cellOf(H.y1); cy++) for (let cz = cellOf(H.z0); cz <= cellOf(H.z1); cz++) {
+    total++; if (!cellOpen(cx, cy, cz)) list.push([cx, cy, cz]);
+  }
+  const geo = new THREE.BoxGeometry(CELL * 0.96, CELL * 0.96, CELL * 0.96);
+  const mat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+  closedMesh = new THREE.InstancedMesh(geo, mat, list.length);
+  const m = new THREE.Matrix4();
+  list.forEach((c, i) => { m.makeTranslation(c[0] * CELL + 2, c[1] * CELL + 2, c[2] * CELL + 2); closedMesh.setMatrixAt(i, m); });
+  mazeScene.add(closedMesh);
+  themed.push([closedMesh, p => { mat.color.setHex(p.coral); mat.opacity = p.closedOp; }]);
+  document.getElementById("md-cells").textContent = total;
+  document.getElementById("md-closed").textContent = list.length;
+})();
+function drawMaze() {
+  drop(mazeScene, mazeLayer);
+  mazeLayer = new THREE.Group();
+  const F = focus.maze;
+  closedMesh.visible = F ? F === 1 || F === 3 : document.getElementById("m-closed").checked;
+  const showSeen = F ? F === 2 : document.getElementById("m-seen").checked;
+  const hasFlight = mazeRun && mazeRun.flight && mazeRun.flight.pts;
+  const showChain = !F || F === 3 || F === 4, showCorners = F === 4 || (!F && !hasFlight), showFlight = (!F || F === 5) && hasFlight;
+  const mk = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), new THREE.MeshBasicMaterial({ color: col })); m.position.set(...p); return m; };
+  mazeLayer.add(mk(START, P.start, 0.8)); mazeLayer.add(mk(GOAL, P.cyan, 0.8));
+  const L = [{ at: [START[0], START[1] + 2.5, START[2]], text: "start" }, { at: [GOAL[0], GOAL[1] + 2.5, GOAL[2]], text: "goal", kind: "target" }];
+  WALLS.forEach(([wx, , gz], i) => L.push({ at: [wx + 1, H.y1 + 1, gz + 3.5], text: `wall ${i + 1}: ${GAP_NAMES[i]}` }));
+  const searched = mazeRun && mazeAnim >= mazeRun.seen.length;
+  if (mazeRun) {
+    const shown = Math.min(mazeRun.seen.length, Math.floor(mazeAnim));
+    seenMesh.count = shown;
+    seenMesh.visible = showSeen && shown > 0;
+    if (searched && mazeRun.path) {
+      if (showChain) {
+        const geo = new THREE.BoxGeometry(CELL * 0.92, CELL * 0.92, CELL * 0.92);
+        for (const p of mazeRun.path.slice(0, -1)) {
+          const b = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: P.cyan, transparent: F === 4, opacity: F === 4 ? 0.35 : 1 }));
+          b.position.set(...p); mazeLayer.add(b);
+        }
+      }
+      if (showCorners) {
+        mazeLayer.add(tube([START, ...mazeRun.corners], P.pick, 0.25));
+        mazeRun.corners.forEach((c, i) => {
+          mazeLayer.add(mk(c, P.pick, 0.6));
+          if (F >= 4 && i < mazeRun.corners.length - 1) L.push({ at: [c[0], c[1] + 1.6, c[2]], text: `corner ${i + 1}`, kind: "pick" });
+        });
+      }
+      if (showFlight) {
+        const fp = mazeRun.flight.pts;
+        mazeLayer.add(tube(fp.filter((_, i) => i % 2 === 0).map(s => [s.p[0], s.p[1] + 0.3, s.p[2]]), P.pick, 0.22));
+        let n = 0;
+        for (const s of fp) if (s.fire) {
+          const b = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
+          b.position.set(s.p[0], s.p[1] + 0.3, s.p[2]); mazeLayer.add(b);
+          if (F === 5) L.push({ at: [s.p[0], s.p[1] + 1.8, s.p[2]], text: `rocket ${++n}`, kind: "hit" });
+        }
+      }
+    }
+    document.getElementById("md-seen").textContent = shown;
+    document.getElementById("md-path").textContent = searched ? (mazeRun.path ? mazeRun.path.length : "no way found") : "searching";
+    document.getElementById("md-corners").textContent = searched && mazeRun.corners ? mazeRun.corners.length : searched ? "none" : "searching";
+    const fl = mazeRun.flight;
+    document.getElementById("md-flight").textContent = !searched ? "searching" : fl && fl.pts ? fl.pts.length - 1 : "none found";
+    document.getElementById("md-rockets").textContent = !searched ? "searching" : fl && fl.pts ? fl.rockets : "none";
+    document.getElementById("md-ms").textContent = !searched ? "searching" : fl ? `${Math.round(fl.ms)} ms, ${fl.expanded} states` : "none";
+  } else {
+    if (seenMesh) seenMesh.visible = false;
+    document.getElementById("md-seen").textContent = 0;
+    document.getElementById("md-path").textContent = "not searched";
+    document.getElementById("md-corners").textContent = "not searched";
+    for (const id of ["md-flight", "md-rockets", "md-ms"]) document.getElementById(id).textContent = "not searched";
+  }
+  labels.maze = L;
+  mazeScene.add(mazeLayer);
+}
+function mazeLegend() {
+  setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners, then the flight planned"], [P.rocket, "rocket in the plan"]]);
+}
+
+// ======================= theme, tabs, loop =======================
+function applyTheme() {
+  const dark = themeChoice === "dark" || (themeChoice === "auto" && !sysLight.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  P = PALETTES[dark ? "dark" : "light"];
+  for (const [, apply] of themed) apply(P);
+  if (seenMesh) seenMesh.material.color.setHex(P.seen);
+  document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeChoice === themeChoice));
+  if (current === "rings") ringLegend(); else mazeLegend();
+  redrawRings(); drawMaze();
+}
+document.querySelectorAll("[data-theme-choice]").forEach(b => b.onclick = () => {
+  themeChoice = b.dataset.themeChoice; store.set(themeChoice); applyTheme();
+});
+sysLight.addEventListener("change", () => { if (themeChoice === "auto") applyTheme(); });
+
+let current = "rings", running = true, acc = 0;
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function setRunning(on) { running = on; document.getElementById("r-run").textContent = on ? "Pause" : "Play"; }
+function show(which) {
+  current = which;
+  for (const id of ["rings", "maze"]) {
+    document.getElementById("tab-" + id).setAttribute("aria-selected", id === which);
+    for (const part of ["steps-", "ctl-", "read-"]) document.getElementById(part + id).hidden = id !== which;
+  }
+  if (which === "rings") {
+    camera.position.set(-18, 50, 98); controls.target.set(88, 12, 0);
+    ringLegend();
+  } else {
+    camera.position.set(-40, 60, 70); controls.target.set(55, 8, 0);
+    mazeLegend();
+    if (!mazeRun) search();
+    drawMaze();
+  }
+  // a narrow view sees less across: step back so the whole course stays in frame
+  const aspect = view.clientWidth / Math.max(1, view.clientHeight);
+  if (aspect < 1.2) camera.position.sub(controls.target).multiplyScalar(1.2 / Math.max(0.5, aspect)).add(controls.target);
+  showCaption();
+  controls.update();
+}
+document.getElementById("tab-rings").onclick = () => show("rings");
+document.getElementById("tab-maze").onclick = () => show("maze");
+const cost = () => +document.getElementById("r-cost").value;
+const speed = () => +document.getElementById("r-speed").value;
+document.getElementById("r-cost").oninput = e => { document.getElementById("r-cost-out").textContent = e.target.value; };
+document.getElementById("r-speed").oninput = e => { document.getElementById("r-speed-out").textContent = e.target.value + "×"; };
+document.getElementById("r-run").onclick = () => setRunning(!running);
+document.getElementById("r-step").onclick = () => { setRunning(false); ringTick(cost()); ringTick(cost()); redrawRings(); };
+document.getElementById("r-reset").onclick = () => { ringReset(); };
+document.getElementById("r-others").onchange = () => redrawRings();
+document.getElementById("m-search").onclick = () => { search(); if (focus.maze === 1) setFocus("maze", 2); else drawMaze(); };
+document.getElementById("m-reset").onclick = () => { mazeRun = null; setFocus("maze", 0); };
+document.getElementById("m-closed").onchange = () => drawMaze();
+document.getElementById("m-seen").onchange = () => drawMaze();
+
+let lastT = performance.now();
+function loop(t) {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  if (current === "rings" && running && !R.done) {
+    acc += dt * 20 * speed();                       // 20 ticks a second, as the game
+    let n = 0;
+    while (acc >= 1 && n < 6) { ringTick(cost()); acc -= 1; n++; }
+    if (n) redrawRings();
+  }
+  if (current === "rings" && R.done && running) { R.wait += dt; if (R.wait > 3) ringReset(); }
+  if (current === "maze" && mazeRun && mazeAnim < mazeRun.seen.length) { mazeAnim += dt * 900; drawMaze(); }
+  controls.update();
+  renderer.render(current === "rings" ? ringScene : mazeScene, camera);
+  placeLabels();
+  requestAnimationFrame(loop);
+}
+ringReset();
+// open at rest on a moment worth seeing: a few seconds into the flight, a plan drawn
+for (let i = 0; i < 70; i++) ringTick(12);
+applyTheme();
+show(QS.get("scene") === "maze" ? "maze" : "rings");
+const qStep = +QS.get("step");
+if (qStep >= 1 && qStep <= STEPS[current].length) setFocus(current, qStep);
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

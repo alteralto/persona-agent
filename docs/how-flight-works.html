@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>How the bot flies rings and finds a way through gaps</title>
-<meta name="description" content="An interactive 3D page: how a Minecraft bot on elytra plans its glide through rings and searches a way through a hall of walls, with the same physics as the mod">
+<title>How the bot flies rings, finds gaps and follows a player</title>
+<meta name="description" content="An interactive 3D page: how a Minecraft bot on elytra plans its glide through rings, searches a way through a hall of walls and keeps up with a player, with the same physics as the mod">
 <script>
 // Theme before first paint: the stored choice, or the system's when it is "auto"
 (function () {
@@ -145,6 +145,11 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
       <button role="tab" id="tab-maze" aria-selected="false" aria-controls="view">Maze</button>
       <button role="tab" id="tab-follow" aria-selected="false" aria-controls="view">Follow</button>
     </div>
+    <div class="seg small" role="group" aria-label="Camera">
+      <button data-cam="orbit" aria-pressed="true">Orbit</button>
+      <button data-cam="chase" aria-pressed="false">Behind the bot</button>
+      <button data-cam="eye" aria-pressed="false">Bot's eyes</button>
+    </div>
     <div class="seg small" role="group" aria-label="Theme">
       <button data-theme-choice="auto" aria-pressed="true">Auto</button>
       <button data-theme-choice="dark" aria-pressed="false">Dark</button>
@@ -157,7 +162,7 @@ dl.read dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
     <div id="labels" aria-hidden="true"></div>
     <div class="legend" id="legend"></div>
     <div class="caption" id="caption" hidden aria-live="polite"><small id="cap-n"></small><b id="cap-t"></b><span id="cap-x"></span></div>
-    <div class="hint">Drag to orbit, scroll to zoom, right-drag to pan</div>
+    <div class="hint" id="hint">Drag to orbit, scroll to zoom, right-drag to pan</div>
   </div>
   <aside>
     <section>
@@ -308,10 +313,14 @@ function step(v, yaw, pitch, rocket) {
 const PALETTES = {
   dark: { bg: 0x0b1330, ground: 0x101b42, grid: 0x24315e, slate: 0x7c89aa, coral: 0xef6b5b, cyan: 0x4cc8e0, pick: 0xff6fb0,
     trail: 0xb9c6d8, rocket: 0xff8a2a, passed: 0x5b6b80, glass: 0x9fd6ff, glassOp: 0.06, glassEdge: 0x6fa8c8, seen: 0x8fa3bf,
-    body: 0x3f7fd0, wing: 0x9aa7b8, start: 0xffffff, sky: 0xcfe0ff, earth: 0x1a2230, hemi: 0.9, closedOp: 0.11 },
+    body: 0x3f7fd0, wing: 0x9aa7b8, start: 0xffffff, sky: 0xcfe0ff, earth: 0x1a2230, hemi: 0.9, closedOp: 0.11,
+    skyTop: 0x050a1f, skyHorizon: 0x1c2a5a, cloud: 0x7d8cc0, cloudOp: 0.3, grassA: 0x15301f, grassB: 0x1d3c28,
+    gridOp: 0.5, skin: 0xc69c7a, legs: 0x2c3150, sun: 0.75 },
   light: { bg: 0xf4f6fa, ground: 0xe6eaf2, grid: 0xc9d1e2, slate: 0x7a85a3, coral: 0xd0503e, cyan: 0x0e8eb0, pick: 0xff4f9e,
     trail: 0x4b5675, rocket: 0xe06a10, passed: 0xa9b3c8, glass: 0x1c3f94, glassOp: 0.035, glassEdge: 0x5a7fb0, seen: 0x6d7fa3,
-    body: 0x1c3f94, wing: 0x8f9ab0, start: 0x0d1838, sky: 0xffffff, earth: 0xb8c2d6, hemi: 1.0, closedOp: 0.14 }
+    body: 0x1c3f94, wing: 0x8f9ab0, start: 0x0d1838, sky: 0xffffff, earth: 0xb8c2d6, hemi: 1.0, closedOp: 0.14,
+    skyTop: 0x4f8fd6, skyHorizon: 0xd6e7f5, cloud: 0xffffff, cloudOp: 0.92, grassA: 0x3d6829, grassB: 0x4a7731,
+    gridOp: 0.3, skin: 0xd9a982, legs: 0x2b3a7a, sun: 0.8 }
 };
 let P = PALETTES[document.documentElement.dataset.theme] || PALETTES.dark;
 const hex = c => "#" + c.toString(16).padStart(6, "0");
@@ -329,6 +338,8 @@ let themeChoice = /^(auto|dark|light)$/.test(QS.get("theme") || "") ? QS.get("th
 const view = document.getElementById("view");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 view.prepend(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -340,21 +351,70 @@ function resize() {
 window.addEventListener("resize", resize);
 
 const themed = [];   // [object, apply(P)] pairs repainted when the theme changes
+// one seeded random stream per use, so the clouds and the grass come out the same on every visit
+function seeded(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+// the sky: a dome round the camera, deep overhead, pale at the horizon where the fog takes over
+function skyDome() {
+  return new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { top: { value: new THREE.Color() }, bottom: { value: new THREE.Color() } },
+    vertexShader: "varying float h; void main() { vec4 w = modelMatrix * vec4(position, 1.0); h = normalize(w.xyz - cameraPosition).y; gl_Position = projectionMatrix * viewMatrix * w; }",
+    fragmentShader: "uniform vec3 top; uniform vec3 bottom; varying float h; void main() { gl_FragColor = vec4(mix(bottom, top, smoothstep(0.0, 0.55, h)), 1.0); }"
+  }));
+}
+// flat block clouds, as in the game, high over every scene
+function clouds(scene) {
+  const rnd = seeded(11), n = 46;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ transparent: true, depthWrite: false }), n);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  for (let i = 0; i < n; i++)
+    mesh.setMatrixAt(i, m.compose(new THREE.Vector3(-800 + rnd() * 1600, 78 + rnd() * 16, -700 + rnd() * 1400), q,
+      new THREE.Vector3(14 + rnd() * 30, 3, 8 + rnd() * 20)));
+  scene.add(mesh);
+  themed.push([mesh, p => { mesh.material.color.setHex(p.cloud); mesh.material.opacity = p.cloudOp; }]);
+}
 function makeScene() {
   const s = new THREE.Scene();
   const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1); s.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(60, 120, 40); s.add(sun);
-  themed.push([s, p => { s.background = new THREE.Color(p.bg); hemi.color.setHex(p.sky); hemi.groundColor.setHex(p.earth); hemi.intensity = p.hemi; }]);
+  // the sun casts shadows: a trail's shadow on the ground shows how high it ran
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(60, 120, 40);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0006;
+  Object.assign(sun.shadow.camera, { left: -120, right: 120, top: 120, bottom: -120, near: 1, far: 420 });
+  s.add(sun); s.add(sun.target);
+  const sky = skyDome(); s.add(sky);
+  s.fog = new THREE.Fog(0, 220, 1000);
+  s.userData = { sun, sky };
+  clouds(s);
+  themed.push([s, p => {
+    s.background = new THREE.Color(p.skyHorizon); s.fog.color.setHex(p.skyHorizon);
+    sky.material.uniforms.top.value.setHex(p.skyTop); sky.material.uniforms.bottom.value.setHex(p.skyHorizon);
+    hemi.color.setHex(p.sky); hemi.groundColor.setHex(p.earth); hemi.intensity = p.hemi; sun.intensity = p.sun;
+  }]);
   return s;
 }
+// grass blocks, each a shade of its own, out to the horizon; the 4-block grid only where it is flown
+function grassTexture(p) {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), rnd = seeded(7), a = new THREE.Color(p.grassA), b = new THREE.Color(p.grassB);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    g.fillStyle = "#" + a.clone().lerp(b, rnd()).getHexString(); g.fillRect(x * 8, y * 8, 8, 8);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
 function floor(scene, w, d, cx) {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial());
-  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, 0, 0); scene.add(ground);
+  const SIZE = 3200;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshLambertMaterial());
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, 0, 0); ground.receiveShadow = true; scene.add(ground);
   let grid = null;
   themed.push([ground, p => {
-    ground.material.color.setHex(p.ground);
+    if (ground.material.map) ground.material.map.dispose();
+    ground.material.map = grassTexture(p); ground.material.map.repeat.set(SIZE / 16, SIZE / 16); ground.material.needsUpdate = true;
     if (grid) scene.remove(grid);
-    grid = new THREE.GridHelper(w, w / 4, p.grid, p.grid); grid.position.set(cx, 0.01, 0); scene.add(grid);
+    grid = new THREE.GridHelper(w, w / 4, p.grid, p.grid); grid.position.set(cx, 0.02, 0);
+    grid.material.transparent = true; grid.material.opacity = p.gridOp; scene.add(grid);
   }]);
 }
 function voxels(scene, list, color, opacity) {
@@ -364,6 +424,7 @@ function voxels(scene, list, color, opacity) {
   const m = new THREE.Matrix4();
   list.forEach((b, i) => { m.makeTranslation(b[0] + 0.5, b[1] + 0.5, b[2] + 0.5); mesh.setMatrixAt(i, m); });
   mesh.count = list.length;
+  mesh.castShadow = mesh.receiveShadow = true;
   scene.add(mesh);
   return mesh;
 }
@@ -374,8 +435,10 @@ function polyline(points, color, opacity = 1) {
 function tube(points, color, r = 0.18) {
   if (points.length < 2) return new THREE.Object3D();
   const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p[0], p[1], p[2])));
-  return new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, points.length * 2), r, 6, false),
+  const m = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, points.length * 2), r, 6, false),
     new THREE.MeshBasicMaterial({ color }));
+  m.castShadow = true;
+  return m;
 }
 // a layer is rebuilt every redraw: free its GPU buffers, or a long run exhausts the context
 function drop(scene, layer) {
@@ -383,15 +446,23 @@ function drop(scene, layer) {
   scene.remove(layer);
   layer.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
 }
-// the glider: a body and two wings, turned by yaw and pitch
+// the glider: a player lying on the air, head first, elytra spread and swept back; turned by yaw
+// and pitch. The bot the camera rides with is kept, so each frame can place it between two ticks
+let subjectMesh = null;
 function gliderMesh(g, body, scale = 1) {
-  const bot = new THREE.Group();
-  bot.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 1.6), new THREE.MeshLambertMaterial({ color: body })));
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 0.9), new THREE.MeshLambertMaterial({ color: P.wing }));
-  wing.position.z = -0.2; bot.add(wing);
+  const bot = new THREE.Group(), lam = c => new THREE.MeshLambertMaterial({ color: c });
+  const part = (w, h, d, col, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), lam(col)); m.position.set(x, y, z); m.castShadow = true; bot.add(m); return m; };
+  part(0.5, 0.26, 0.75, body, 0, 0, 0.05);                 // chest
+  part(0.46, 0.24, 0.75, P.legs, 0, 0, -0.68);             // legs
+  part(0.44, 0.44, 0.44, P.skin, 0, 0.06, 0.66);           // head
+  for (const side of [-1, 1]) {
+    const w = part(1.15, 0.05, 0.95, P.wing, side * 0.78, 0.16, -0.22);
+    w.rotation.order = "YZX"; w.rotation.y = side * 0.32; w.rotation.z = side * 0.22;
+  }
   bot.position.set(g.pos[0], g.pos[1] + 0.3, g.pos[2]);
   bot.rotation.order = "YXZ"; bot.rotation.y = -g.yaw * RAD; bot.rotation.x = g.pitch * RAD;
   bot.scale.setScalar(scale);
+  if (g === camSubject()) { subjectMesh = bot; bot.visible = camMode !== "eye"; }
   return bot;
 }
 function setLegend(items) {
@@ -412,7 +483,9 @@ function placeLabels() {
   pool.forEach((d, i) => {
     const l = list[i] && list[i][0];
     if (!l) { d.style.display = "none"; return; }
-    tmp.set(l.at[0], l.at[1], l.at[2]).project(camera);
+    tmp.set(l.at[0], l.at[1], l.at[2]);
+    if (tmp.distanceTo(camera.position) < 4) { d.style.display = "none"; return; }
+    tmp.project(camera);
     if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) { d.style.display = "none"; return; }
     d.style.display = "";
     if (d.textContent !== l.text) d.textContent = l.text;
@@ -546,12 +619,13 @@ let ringLayer = null;
 function ringReset() {
   R.pos = [0, 12, 0.5]; R.vel = [1.3, -0.05, 0]; R.yaw = -90; R.pitch = 0;
   R.tick = 0; R.rocketLeft = 0; R.lastRocket = -100; R.rockets = 0; R.ring = 0; R.miss = []; R.trail = [R.pos];
-  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.crash = false; R.after = 0; R.wait = 0;
+  R.plan = null; R.planTick = -10; R.rocketMarks = []; R.done = false; R.crash = false; R.after = 0; R.wait = 0; R.prev = null;
   redrawRings();
 }
 function centre(i) { const r = RINGS[i]; return [r[0] + 0.5, r[1] + 0.5, r[2] + 0.5]; }
 function ringTick(cost) {
   if (R.done) return;
+  R.prev = { pos: R.pos, yaw: R.yaw, pitch: R.pitch };
   if (R.tick - R.planTick >= 2) {
     const i = R.ring;
     const through = i < RINGS.length ? centre(i) : null;
@@ -607,12 +681,14 @@ function redrawRings() {
     L.push({ at: [e[0], e[1] + 0.6, e[2]], text: `${R.plan.all.length + R.plan.hits.length} tries, 2 s ahead each` });
   }
   if (R.plan && R.plan.best && showPick) {
-    const pts = R.plan.best.pts;
-    ringLayer.add(tube(pts.map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.14));
+    const pts = R.plan.best.pts, from = camMode === "eye" ? 6 : 0;
+    ringLayer.add(tube(pts.slice(from).map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.14));
     const e = pts[pts.length - 1];
     L.push({ at: [e[0], e[1] + 0.9, e[2]], text: `chosen: pitch ${R.plan.best.pitch.toFixed(0)}°, ${R.plan.best.fire ? "rocket now" : "no rocket"}`, kind: "pick" });
   }
-  if (R.trail.length > 1 && showTrail) ringLayer.add(tube(R.trail.map(p => [p[0], p[1] + 0.3, p[2]]), P.trail, 0.09));
+  // from the bot's eyes the camera is drawn between the last two ticks: the newest trail points would be in front of it
+  const trail = camMode === "eye" ? R.trail.slice(0, -2) : R.trail;
+  if (trail.length > 1 && showTrail) ringLayer.add(tube(trail.map(p => [p[0], p[1] + 0.3, p[2]]), P.trail, 0.09));
   if (!F || F === 5) for (const p of R.rocketMarks) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
     m.position.set(p[0], p[1] + 0.3, p[2]); ringLayer.add(m);
@@ -870,10 +946,11 @@ function drawMaze() {
   drop(mazeScene, mazeLayer);
   mazeLayer = new THREE.Group();
   const F = focus.maze;
-  closedMesh.visible = F ? F === 1 || F === 3 : document.getElementById("m-closed").checked;
-  const showSeen = F ? F === 2 : document.getElementById("m-seen").checked;
+  const orbit = camMode === "orbit";   // from the bot: the walls, the hall and the flight, not the search's cells
+  closedMesh.visible = orbit && (F ? F === 1 || F === 3 : document.getElementById("m-closed").checked);
+  const showSeen = orbit && (F ? F === 2 : document.getElementById("m-seen").checked);
   const hasFlight = mazeRun && mazeRun.flight && mazeRun.flight.pts;
-  const showChain = !F || F === 3 || F === 4, showCorners = F === 4 || (!F && !hasFlight), showFlight = (!F || F === 5) && hasFlight;
+  const showChain = orbit && (!F || F === 3 || F === 4), showCorners = orbit && (F === 4 || (!F && !hasFlight)), showFlight = (!F || F === 5) && hasFlight;
   const mk = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), new THREE.MeshBasicMaterial({ color: col })); m.position.set(...p); return m; };
   mazeLayer.add(mk(START, P.start, 0.8)); mazeLayer.add(mk(GOAL, P.cyan, 0.8));
   const L = [{ at: [START[0], START[1] + 2.5, START[2]], text: "start" }, { at: [GOAL[0], GOAL[1] + 2.5, GOAL[2]], text: "goal", kind: "target" }];
@@ -926,6 +1003,22 @@ function drawMaze() {
   labels.maze = L;
   mazeScene.add(mazeLayer);
 }
+// the planned flight, replayed at the game's 20 ticks a second, a pause at the goal, then again
+const mazeBot = { pos: null, yaw: -90, pitch: 0, t: 0, mesh: null };
+function mazeReplay(dt) {
+  const fp = mazeRun && mazeRun.flight && mazeRun.flight.pts;
+  const on = fp && fp.length > 2 && mazeAnim >= mazeRun.seen.length && (!focus.maze || focus.maze === 5);
+  if (!on) { mazeBot.pos = null; if (mazeBot.mesh) mazeBot.mesh.visible = false; return; }
+  mazeBot.t = (mazeBot.t + Math.max(0, dt) * 20) % (fp.length + 30);   // the first frame can come before the clock
+  const i = Math.min(fp.length - 2, Math.floor(mazeBot.t)), f = Math.min(1, mazeBot.t - i);
+  const a = fp[i].p, b = fp[i + 1].p, v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  mazeBot.pos = [0, 1, 2].map(k => a[k] + v[k] * f);
+  mazeBot.yaw = Math.atan2(-v[0], v[2]) / RAD;
+  mazeBot.pitch = -Math.atan2(v[1], Math.hypot(v[0], v[2])) / RAD;
+  if (!mazeBot.mesh) { mazeBot.mesh = gliderMesh(mazeBot, P.body); mazeScene.add(mazeBot.mesh); }
+  subjectMesh = mazeBot.mesh;
+  mazeBot.mesh.visible = camMode !== "eye";
+}
 function mazeLegend() {
   setLegend([[P.coral, "closed 4 × 4 × 4 cell"], [P.seen, "where the search looked"], [P.cyan, "chain of cells found"], [P.pick, "corners, then the flight planned"], [P.rocket, "rocket in the plan"]]);
 }
@@ -947,6 +1040,7 @@ function glider(pos) {
 }
 // one tick on the solver towards a goal: a plan every 2 ticks, the look turned at a hand's pace
 function glide(G, t, goal, cost, heightWeight, mayBoost) {
+  G.prev = { pos: G.pos, yaw: G.yaw, pitch: G.pitch };
   if (t - G.planTick >= 2) {
     const since = t - G.lastRocket;
     G.plan = solve(G.pos, G.vel, Math.max(0, 20 - since), goal, null, cost, since >= 20 && mayBoost, heightWeight, openSky);
@@ -1000,7 +1094,10 @@ function drawFollow() {
   const showNow = S !== 1, showOld = S ? S === 3 || S === 5 : document.getElementById("f-old").checked;
   const ball = (p, col, r) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: col, wireframe: true })); m.position.set(p[0], p[1] + 0.3, p[2]); return m; };
   const line = (a, b, col, op) => polyline([[a[0], a[1] + 0.3, a[2]], [b[0], b[1] + 0.3, b[2]]], col, op);
-  const trail = (g, col, r) => { if (g.trail.length > 1) followLayer.add(tube(g.trail.map(p => [p[0], p[1] + 0.3, p[2]]), col, r)); };
+  const trail = (g, col, r) => {
+    const pts = camMode === "eye" && g === now ? g.trail.slice(0, -2) : g.trail;
+    if (pts.length > 1) followLayer.add(tube(pts.map(p => [p[0], p[1] + 0.3, p[2]]), col, r));
+  };
   const rockets = g => { for (const m of g.marks.slice(-30)) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: P.rocket, wireframe: true }));
     b.position.set(m[0], m[1] + 0.3, m[2]); followLayer.add(b);
@@ -1029,7 +1126,7 @@ function drawFollow() {
       if (S) L.push({ at: [g.slot[0], g.slot[1] + 2, g.slot[2]], text: `slot, ${ahead / 20} s ahead` });
     }
     if (g === now && g.plan && g.plan.best && (!S || S === 2))
-      followLayer.add(tube(g.plan.best.pts.map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.07));
+      followLayer.add(tube(g.plan.best.pts.slice(camMode === "eye" ? 6 : 0).map(p => [p[0], p[1] + 0.3, p[2]]), P.pick, 0.07));
     if (!S || S === 4) rockets(g);
     if (S === 5) {
       followLayer.add(line(g.pos, lead.pos, col, 0.9));
@@ -1059,6 +1156,7 @@ function applyTheme() {
   P = PALETTES[dark ? "dark" : "light"];
   for (const [, apply] of themed) apply(P);
   if (seenMesh) seenMesh.material.color.setHex(P.seen);
+  if (mazeBot.mesh) { drop(mazeScene, mazeBot.mesh); mazeBot.mesh = null; }
   document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeChoice === themeChoice));
   if (current === "rings") ringLegend(); else if (current === "follow") followLegend(); else mazeLegend();
   redrawRings(); drawMaze(); if (F.lead) drawFollow();
@@ -1069,6 +1167,29 @@ document.querySelectorAll("[data-theme-choice]").forEach(b => b.onclick = () => 
 sysLight.addEventListener("change", () => { if (themeChoice === "auto") applyTheme(); });
 
 let current = "rings", running = true, acc = 0;
+// the camera: orbit round the scene, ride behind the bot, or look out of its eyes
+let camMode = /^(orbit|chase|eye)$/.test(QS.get("cam") || "") ? QS.get("cam") : "orbit";
+const HINTS = { orbit: "Drag to orbit, scroll to zoom, right-drag to pan", chase: "The camera rides behind the bot: Orbit to look round",
+  eye: "Through the bot's eyes: Orbit to look round" };
+function camSubject() { return current === "rings" ? R : current === "follow" ? F.now : current === "maze" ? mazeBot : null; }
+// where the ridden bot is between its last two ticks, as the game draws it
+function riding() {
+  const g = camSubject();
+  if (!g || !g.pos) return null;
+  const a = current === "rings" ? Math.min(1, acc) : current === "follow" ? Math.min(1, facc) : 1, p0 = g.prev || g;
+  return { pos: [0, 1, 2].map(i => p0.pos[i] + (g.pos[i] - p0.pos[i]) * a),
+    yaw: p0.yaw + (((g.yaw - p0.yaw + 540) % 360) - 180) * a, pitch: p0.pitch + (g.pitch - p0.pitch) * a };
+}
+function setCam(mode) {
+  camMode = mode;
+  document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cam === mode));
+  document.getElementById("hint").textContent = HINTS[mode];
+  camera.fov = mode === "eye" ? 70 : 50; camera.updateProjectionMatrix();
+  controls.enabled = mode === "orbit";
+  if (mode === "orbit") show(current);
+  if (current === "rings") redrawRings(); else if (current === "follow") drawFollow(); else drawMaze();
+}
+document.querySelectorAll("[data-cam]").forEach(b => b.onclick = () => setCam(b.dataset.cam));
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function setRunning(on) { running = on; document.getElementById("r-run").textContent = on ? "Pause" : "Play"; }
 let followRunning = true, facc = 0;
@@ -1130,6 +1251,7 @@ function loop(t) {
   }
   if (current === "rings" && R.done && running) { R.wait += dt; if (R.wait > 3) ringReset(); }
   if (current === "maze" && mazeRun && mazeAnim < mazeRun.seen.length) { mazeAnim += dt * 900; drawMaze(); }
+  if (current === "maze") mazeReplay(dt);
   if (current === "follow" && followRunning) {
     facc += dt * 20 * +document.getElementById("f-speed").value;
     const before = F.lead.pos;
@@ -1145,8 +1267,28 @@ function loop(t) {
       drawFollow();
     }
   }
-  controls.update();
-  renderer.render(current === "rings" ? ringScene : current === "follow" ? followScene : mazeScene, camera);
+  const scene = current === "rings" ? ringScene : current === "follow" ? followScene : mazeScene;
+  const ride = riding(), at = ride && new THREE.Vector3(ride.pos[0], ride.pos[1] + 0.3, ride.pos[2]);
+  controls.enabled = !(ride && camMode !== "orbit");   // nobody to ride yet (a maze not searched): orbit
+  if (ride && subjectMesh) {
+    subjectMesh.position.copy(at); subjectMesh.rotation.y = -ride.yaw * RAD; subjectMesh.rotation.x = ride.pitch * RAD;
+  }
+  if (ride && camMode !== "orbit") {
+    const d = look(ride.yaw, ride.pitch), h = Math.hypot(d[0], d[2]) || 1;
+    if (camMode === "eye") {
+      camera.position.set(at.x + d[0] * 0.5, at.y + 0.4 + d[1] * 0.5, at.z + d[2] * 0.5);
+      camera.lookAt(at.x + d[0] * 40, at.y + 0.4 + d[1] * 40, at.z + d[2] * 40);
+    } else {
+      const back = current === "follow" ? 18 : current === "maze" ? 6 : 9;   // in the hall, close enough to stay inside it
+      camera.position.set(at.x - d[0] / h * back, at.y + back * 0.4, at.z - d[2] / h * back);
+      camera.lookAt(at.x + d[0] * 14, at.y + d[1] * 14, at.z + d[2] * 14);
+    }
+  } else controls.update();
+  // the sun and its shadow box follow what is looked at; the sky stays round the camera
+  const focusAt = at && camMode !== "orbit" ? at : controls.target, sun = scene.userData.sun;
+  sun.position.set(focusAt.x + 60, focusAt.y + 120, focusAt.z + 40); sun.target.position.copy(focusAt);
+  scene.userData.sky.position.copy(camera.position);
+  renderer.render(scene, camera);
   placeLabels();
   requestAnimationFrame(loop);
 }
@@ -1157,6 +1299,7 @@ applyTheme();
 show(/^(maze|follow)$/.test(QS.get("scene") || "") ? QS.get("scene") : "rings");
 const qStep = +QS.get("step");
 if (qStep >= 1 && qStep <= STEPS[current].length) setFocus(current, qStep);
+if (camMode !== "orbit") setCam(camMode);
 resize();
 requestAnimationFrame(loop);
 </script>
