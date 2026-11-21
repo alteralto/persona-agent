@@ -42,6 +42,19 @@ func (a *Agent) protectBuilds(ctx context.Context) {
 		}
 		a.protected, a.fork = true, true
 		a.log.Info("build policy set", "result", out)
+		if a.cfg.PublicServer {
+			// Tungsten, not Baritone, on a public server. Baritone walked faster on SkyBars (69 blocks
+			// in 40 s against Tungsten's 53) but twice froze for good ("Already running!", the body
+			// still, every new goal ignored) until Tungsten was switched back on (21.11). Tungsten's
+			// own trouble there -- "Path stopped: drift 1.8 (threshold 1.1)" dozens of times a minute
+			// -- is the drift threshold, raised in config/tungsten.json (driftThreshold 2.5,
+			// driftPerTick 0.1); with it 0 stops in a 40 s run.
+			if res, err := a.mc.Call(ctx, "setTungstenPathing", map[string]any{"on": true}); err != nil {
+				a.log.Warn("walking by tungsten", "err", err)
+			} else {
+				a.log.Info("public server: walking by tungsten", "result", res)
+			}
+		}
 		return
 	}
 	if !unknownTool(err) {
@@ -78,14 +91,17 @@ func (a *Agent) refreshGameMode(ctx context.Context) {
 			}
 		}
 	}
-	creative := st.Self.GameMode == "creative"
+	// A public server that gives creative by itself (SkyBars did, 21.11) gets the creative bot:
+	// flights, hovering beside players, salutes, flying over walls when stuck -- the "crossed"
+	// mode, with PublicCreative. It is never asked for there (the creative command stays private-only).
+	creative := st.Self.GameMode == "creative" && (!a.cfg.PublicServer || a.cfg.PublicCreative)
 	if st.Self.GameMode != a.gameMode || !a.modeKnown {
 		a.log.Info("game mode", "mode", st.Self.GameMode)
 	}
 	a.creative, a.modeKnown, a.gameMode = creative, true, st.Self.GameMode
 
 	// On our own server the bot plays in creative: ask for it when the server put us in survival.
-	if a.cfg.AutoCreative && st.Self.GameMode == "survival" && time.Since(a.creativeAsked) > time.Minute {
+	if a.cfg.AutoCreative && !a.cfg.PublicServer && st.Self.GameMode == "survival" && time.Since(a.creativeAsked) > time.Minute {
 		a.creativeAsked = time.Now()
 		if _, err := a.mc.Call(ctx, "ChatMessage", map[string]any{"msg": a.cfg.CreativeCommand}); err != nil {
 			a.log.Warn("creative command", "err", err)
@@ -120,7 +136,7 @@ func (a *Agent) companion() string {
 // tidyInventory keeps a few slots free (fork only). A full inventory blocked creativeGive and
 // made the mod fire rockets it could not move out of the hand.
 func (a *Agent) tidyInventory(ctx context.Context) {
-	if !a.fork || a.noTidy || a.flying {
+	if a.cfg.PublicServer || !a.fork || a.noTidy || a.flying {
 		return
 	}
 	text, err := a.mc.Call(ctx, "tidyInventory", map[string]any{"keepFree": 4})
@@ -148,7 +164,7 @@ func (a *Agent) applyFallSaves(ctx context.Context) {
 	if !a.modeKnown {
 		return // upstream mod: mode unknown, leave the setting as it is
 	}
-	want := !a.creative && !a.flying
+	want := !a.cfg.PublicServer && !a.creative && !a.flying
 	if a.fallSavesSet && a.fallSaves == want {
 		return
 	}
@@ -243,7 +259,7 @@ const (
 // hand; after a landing the mod itself swaps the rockets for it. Creative takes one from the
 // creative tab first; survival only holds one he really carries.
 func (a *Agent) keepFavorite(ctx context.Context) {
-	if !a.fork || a.noFavorite || a.flying || !a.modeKnown || time.Since(a.favoriteAt) < favoriteEvery {
+	if a.cfg.PublicServer || !a.fork || a.noFavorite || a.flying || !a.modeKnown || time.Since(a.favoriteAt) < favoriteEvery {
 		return
 	}
 	a.favoriteAt = time.Now()
@@ -327,6 +343,12 @@ func (a *Agent) startFlightOpts(ctx context.Context, x, z int, o flightOpts) boo
 		a.flyX, a.flyZ = x, z
 		return true
 	}
+	// Crossed mode (public server, creative given): the elytra would not open from the ground at
+	// the SkyBars spawn ("could not take off", 21.11) but opened fine from the air -- so up on
+	// creative flight first, then the elytra from there (checkHover).
+	if a.cfg.PublicServer && a.creative && a.launchVia == nil {
+		return a.startHoverLaunch(ctx, &hoverLaunch{x: x, z: z, opts: o})
+	}
 	y := 70
 	if a.places != nil && a.places.Home != nil {
 		y = explore.Block(a.places.Home.Y)
@@ -351,6 +373,9 @@ func (a *Agent) startRoute(ctx context.Context, pts [][2]int, o flightOpts) bool
 	if a.cfg.HoverOnly && a.creative {
 		last := pts[len(pts)-1]
 		return a.startFlightOpts(ctx, last[0], last[1], o)
+	}
+	if a.cfg.PublicServer && a.creative && a.launchVia == nil {
+		return a.startHoverLaunch(ctx, &hoverLaunch{route: pts, opts: o})
 	}
 	parts := make([]string, len(pts))
 	for i, p := range pts {
@@ -389,6 +414,11 @@ func (a *Agent) pickStyle() string {
 // startWingman takes off to fly beside a player who is flying (fork's flyFollow); after they
 // land the bot follows them on foot again.
 func (a *Agent) startWingman(ctx context.Context, nick string) bool {
+	// Crossed mode: from the ground the wings do not open on SkyBars ("could not take off" every
+	// time, 21.11); climb on creative flight first, then fly beside them.
+	if a.cfg.PublicServer && a.creative && a.launchVia == nil {
+		return a.startHoverLaunch(ctx, &hoverLaunch{follow: nick})
+	}
 	if !a.takeOff(ctx, "flyFollow", map[string]any{"nick": nick}) {
 		return false
 	}
@@ -415,7 +445,7 @@ func (a *Agent) flightPhysics(ctx context.Context) {
 // takeOff readies the flight kit and calls a fork flight tool (flyTo or flyFollow). False when
 // flight is not possible, and the caller walks instead.
 func (a *Agent) takeOff(ctx context.Context, tool string, args map[string]any) bool {
-	if a.noFlight || !a.fork { // upstream mod: no flyTo, no creativeGive
+	if (a.cfg.PublicServer && !a.creative) || a.noFlight || !a.fork { // upstream mod: no flyTo, no creativeGive
 		return false
 	}
 	// A take-off just failed (in water, under a roof): walk out instead of jumping again.
@@ -580,7 +610,7 @@ const (
 // joinFlyers takes off beside a player in the air: the one it follows at once, anyone close by
 // now and then. An elytra flyer gets an elytra wingman; a creative flyer, creative flight.
 func (a *Agent) joinFlyers(ctx context.Context) bool {
-	if !a.fork || a.flying || a.hovering || a.retryFlight != nil || a.judging() ||
+	if (a.cfg.PublicServer && !a.creative) || !a.fork || a.flying || a.hovering || a.retryFlight != nil || a.judging() ||
 		time.Since(a.shortWing) < wingRest {
 		return false
 	}
@@ -711,6 +741,25 @@ func (a *Agent) checkHover(ctx context.Context) bool {
 	}
 	a.hovering = false
 	a.log.Info("hover: "+st.Phase, "reason", st.Reason)
+	if l := a.pendingLaunch; l != nil {
+		a.pendingLaunch = nil
+		if st.Phase == "done" {
+			a.launchVia = l // the elytra path in startFlightOpts/startRoute, not another hover
+			ok := false
+			if l.follow != "" {
+				ok = a.startWingman(ctx, l.follow)
+			} else if len(l.route) >= 2 {
+				ok = a.startRoute(ctx, l.route, l.opts)
+			} else {
+				ok = a.startFlightOpts(ctx, l.x, l.z, l.opts)
+			}
+			a.launchVia = nil
+			a.log.Info("flight: launched from the air", "ok", ok)
+			if ok {
+				return true
+			}
+		}
+	}
 	if st.Phase == "done" && st.Leader != "" {
 		a.mood("happy", 6)
 		a.celebrate(ctx, "flew together")
@@ -934,10 +983,10 @@ func (a *Agent) flyToPlayer(ctx context.Context, name string) bool {
 	return true
 }
 
-// checkWater gets the bot out of a lake: the mod's pathfinder is poor in water and elytra do not
-// take off from it, so a bot that wandered in stayed for minutes. After a few seconds in water
-// it swims to the nearest dry shore (fork's swimToShore) and the rest of roam waits.
-func (a *Agent) checkWater(ctx context.Context) bool {
+// checkGroundMovement reads the current terrain and posture. A walk may need its
+// view raised on dry ground, or a swim to shore after several seconds in water.
+func (a *Agent) checkGroundMovement(ctx context.Context, busy bool) bool {
+	a.groundSnapshot = ""
 	if !a.fork || a.noSwim || a.flying {
 		return false
 	}
@@ -964,13 +1013,57 @@ func (a *Agent) checkWater(ctx context.Context) bool {
 	}
 	var gs struct {
 		Self struct {
-			InWater bool `json:"inWater"`
+			InWater  bool    `json:"inWater"`
+			OnGround bool    `json:"onGround"`
+			Velocity string  `json:"vel"`
+			Flying   bool    `json:"flying"`
+			Pitch    float64 `json:"pitch"`
 		} `json:"self"`
 	}
-	if json.Unmarshal([]byte(text), &gs) != nil || !gs.Self.InWater {
-		a.wetSince = time.Time{}
+	if json.Unmarshal([]byte(text), &gs) != nil {
 		return false
 	}
+	if !gs.Self.InWater {
+		a.wetSince = time.Time{}
+		// An XZ goal is re-planned at the player's current elevation. A server launch
+		// can briefly put that goal tens of blocks above the floor.
+		if a.cfg.PublicServer {
+			a.groundSnapshot = text
+			scouting := a.trip != nil || (a.activity != nil && a.activity.kind == "scout")
+			if !gs.Self.OnGround && !gs.Self.Flying && scouting {
+				vel, err := explore.ParsePos(gs.Self.Velocity)
+				if err == nil && math.Abs(vel.Y) > 0.9 && !a.waitForGround {
+					a.activity = nil
+					a.cancelTrip(ctx)
+					a.waitForGround = true
+					a.log.Info("explore: waiting to land before replanning")
+				}
+			}
+			if a.waitForGround && !gs.Self.OnGround {
+				return true
+			}
+			a.waitForGround = false
+			if gs.Self.OnGround && !gs.Self.Flying {
+				a.recordGroundPosition(a.pos)
+			}
+		}
+		walkingOrIdle := !busy || a.following != "" || a.trip != nil || a.activity != nil || a.leading || a.outing != nil
+		stalled := busy && !a.stillSince.IsZero() && time.Since(a.stillSince) >= 4*time.Second &&
+			math.Hypot(a.pos.X-a.stillPos.X, a.pos.Z-a.stillPos.Z) < 1
+		if walkingOrIdle && !a.judging() && gs.Self.OnGround && !gs.Self.Flying && (gs.Self.Pitch > 35 || stalled) &&
+			a.cfg.PublicServer && a.cfg.LevelWalkView != nil && time.Since(a.lastViewCorrection) >= 4*time.Second {
+			a.lastViewCorrection = time.Now()
+			go func() {
+				task, cancel := context.WithTimeout(ctx, 4*time.Second)
+				defer cancel()
+				if err := a.cfg.LevelWalkView(task); err != nil && ctx.Err() == nil {
+					a.log.Debug("walk view", "err", err)
+				}
+			}()
+		}
+		return false
+	}
+	a.waitForGround = false
 	if a.wetSince.IsZero() {
 		a.wetSince = time.Now()
 		return false
@@ -1064,4 +1157,42 @@ func (a *Agent) visiblePlayers(ctx context.Context) []seenPlayer {
 		out = append(out, seenPlayer{name: p.Name, x: pos.X, z: pos.Z, dist: d})
 	}
 	return out
+}
+
+// hoverLaunch: an elytra flight that starts in the air, after a creative-flight climb.
+type hoverLaunch struct {
+	x, z   int
+	route  [][2]int
+	follow string // a wingman flight beside this player
+	opts   flightOpts
+}
+
+// launchLift: blocks to climb on creative flight before the elytra opens.
+const launchLift = 18
+
+// startHoverLaunch climbs straight up on creative flight; checkHover opens the elytra up there.
+func (a *Agent) startHoverLaunch(ctx context.Context, l *hoverLaunch) bool {
+	if !a.havePos || !a.fork {
+		return false
+	}
+	x, z := explore.Block(a.pos.X), explore.Block(a.pos.Z)
+	text, err := a.mc.Call(ctx, "hoverTo", map[string]any{"x": x, "z": z, "y": explore.Block(a.pos.Y) + launchLift})
+	if err != nil {
+		a.log.Warn("hover launch", "err", err)
+		return false
+	}
+	var st struct{ Phase, Reason string }
+	if json.Unmarshal([]byte(text), &st) != nil || st.Phase != "flying" {
+		a.log.Info("hover launch: not started", "reason", st.Reason)
+		return false
+	}
+	a.hovering, a.pendingLaunch = true, l
+	if len(l.route) >= 2 {
+		last := l.route[len(l.route)-1]
+		a.flyX, a.flyZ = last[0], last[1]
+	} else {
+		a.flyX, a.flyZ = l.x, l.z
+	}
+	a.log.Info("flight: climbing on creative flight to open the elytra", "to_x", a.flyX, "to_z", a.flyZ)
+	return true
 }

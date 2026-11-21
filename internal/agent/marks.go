@@ -150,7 +150,7 @@ const mapEvery = 3 * time.Minute
 
 // writeMap redraws the map page (worldmap) from the places file every few minutes.
 func (a *Agent) writeMap() {
-	if a.places == nil || time.Since(a.mapWritten) < mapEvery {
+	if a.cfg.PublicServer || a.places == nil || time.Since(a.mapWritten) < mapEvery {
 		return
 	}
 	a.mapWritten = time.Now()

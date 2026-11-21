@@ -37,7 +37,7 @@ func (a *Agent) idleTurn(ctx context.Context) {
 			near = append(near, p.name)
 		}
 	}
-	a.enqueue(replyJob{prompt: a.idlePrompt(near), history: slices.Clone(a.history), at: time.Now()})
+	a.enqueue(replyJob{ambient: true, prompt: a.idlePrompt(near), history: slices.Clone(a.history), at: time.Now()})
 }
 
 func (a *Agent) startOuting(ctx context.Context) bool {
@@ -127,13 +127,29 @@ func (a *Agent) flyAbove() float64 {
 }
 
 func (a *Agent) flyShowOff(ctx context.Context, style string) bool {
-	if !a.havePos {
+	if (a.cfg.PublicServer && !a.creative) || !a.havePos {
+		return false
+	}
+	if a.cfg.PublicServer {
+		// Crossed mode: a short show over the crowd, on the elytra launched from a creative climb
+		// (startFlightOpts), not out over the void beyond the spawn island.
+		angle := rand.Float64() * 2 * math.Pi
+		out := 50 + rand.Float64()*50
+		x, z := int(a.pos.X+out*math.Cos(angle)), int(a.pos.Z+out*math.Sin(angle))
+		opts := flightOpts{low: style == styleLow}
+		if style == styleTricks {
+			opts.tricks = 2
+		}
+		if a.startFlightOpts(ctx, x, z, opts) {
+			a.log.Info("flight show (crossed mode)", "x", x, "z", z, "style", style)
+			return true
+		}
 		return false
 	}
 	// No remembered place far enough: out from home in any direction, or back home when already
 	// far, so a string of flight shows does not carry the bot away from its base.
 	cx, cz := a.pos.X, a.pos.Z
-	if a.places != nil && a.places.Home != nil {
+	if a.places != nil && a.places.Home != nil && math.Hypot(a.places.Home.X-a.pos.X, a.places.Home.Z-a.pos.Z) < otherWorldHome {
 		cx, cz = a.places.Home.X, a.places.Home.Z
 	}
 	fromHome := math.Hypot(a.pos.X-cx, a.pos.Z-cz)
@@ -221,3 +237,7 @@ func (a *Agent) showRoute(cx, cz float64) [][2]int {
 	}
 	return append(out, [2]int{int(cx), int(cz)})
 }
+
+// otherWorldHome: a home this far from the bot is another world's (pult.ini's Agicraft home on
+// SkyBars, 21.11): flight shows then start from where the bot is, not 3700 blocks off.
+const otherWorldHome = 1000.0

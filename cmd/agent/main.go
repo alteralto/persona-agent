@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -57,6 +59,8 @@ func main() {
 		Companions:      splitList(env("COMPANIONS", "")),
 		JournalPath:     env("JOURNAL_PATH", `data\decisions.jsonl`),
 		PeopleDir:       env("PEOPLE_DIR", `data\people`),
+		PublicServer:    env("PUBLIC_SERVER", "0") == "1",
+		PublicCreative:  env("PUBLIC_CREATIVE", "1") == "1",
 		AutoCreative:    env("AUTO_CREATIVE", "false") == "true",
 		ActivityEvery:   envDuration("ACTIVITY_EVERY", 30*time.Second),
 		NoOwnGames:      env("OWN_GAMES", "1") == "0",
@@ -81,6 +85,16 @@ func main() {
 	if u := env("MCP_URL", ""); u != "" {
 		mc = mcp.New(u, token)
 	}
+	// The installed fork exposes relative pitch through its local Py4J camera API.
+	// Start the adapter only for a steep downward gaze during an autonomous walk.
+	if cfg.PublicServer {
+		python := filepath.Join(".venv-voice", "Scripts", "pythonw.exe")
+		if _, err := os.Stat(python); err == nil {
+			cfg.LevelWalkView = func(ctx context.Context) error {
+				return exec.CommandContext(ctx, python, "-I", "-B", filepath.Join("scripts", "walk_view.py"), cfg.BotNick).Run()
+			}
+		}
+	}
 	a := agent.New(cfg,
 		mc,
 		laya.New(env("LAYA_URL", "http://127.0.0.1:8090")),
@@ -97,6 +111,25 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if path := os.Getenv("AGENT_CPU_PROFILE"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			log.Warn("CPU profile file", "err", err)
+		} else if err := pprof.StartCPUProfile(f); err != nil {
+			f.Close()
+			log.Warn("CPU profile start", "err", err)
+		} else {
+			profileCtx, finish := context.WithTimeout(ctx, time.Minute)
+			done := make(chan struct{})
+			go func() {
+				<-profileCtx.Done()
+				pprof.StopCPUProfile()
+				f.Close()
+				close(done)
+			}()
+			defer func() { finish(); <-done }()
+		}
+	}
 	if env("VOICE", "true") == "true" {
 		heard := a.WithVoice(voice.NewSpeaker(env("VOICE_SAY_URL", "http://127.0.0.1:8091/say")))
 		go func() {
@@ -109,7 +142,7 @@ func main() {
 	if ch := env("TWITCH_CHANNEL", ""); ch != "" {
 		go (&twitch.Reader{Channel: ch, Log: log}).Run(ctx, a.WithTwitch())
 	}
-	log.Info("pyhtun starting", "bot", cfg.BotNick, "creative", cfg.Creative)
+	log.Info("pyhtun starting", "bot", cfg.BotNick, "creative", cfg.Creative, "public_server", cfg.PublicServer)
 	if err := a.Run(ctx); err != nil {
 		fatal(log, "agent stopped", "err", err)
 	}

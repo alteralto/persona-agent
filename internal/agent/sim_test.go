@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -15,11 +16,13 @@ import (
 	"time"
 
 	"github.com/alteralto/persona-agent/internal/agent"
+	"github.com/alteralto/persona-agent/internal/explore"
 	"github.com/alteralto/persona-agent/internal/giga"
 	"github.com/alteralto/persona-agent/internal/laya"
 	"github.com/alteralto/persona-agent/internal/mcp"
 	"github.com/alteralto/persona-agent/internal/sim"
 	"github.com/alteralto/persona-agent/internal/twitch"
+	"github.com/alteralto/persona-agent/internal/voice"
 )
 
 // End-to-end runs of the real agent against the simulated game (internal/sim). They cover what
@@ -43,11 +46,12 @@ func (l *lockedBuf) String() string {
 }
 
 type run struct {
-	t    *testing.T
-	w    *sim.World
-	giga *sim.Giga
-	log  *lockedBuf
-	a    *agent.Agent
+	t     *testing.T
+	w     *sim.World
+	giga  *sim.Giga
+	log   *lockedBuf
+	a     *agent.Agent
+	heard chan<- voice.Heard
 }
 
 func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
@@ -78,6 +82,7 @@ func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
 	llm := giga.New("sim", "GIGACHAT_API_PERS", "GigaChat-2", true).
 		WithEndpoints(gs.URL+"/oauth", gs.URL+"/chat/completions")
 	a := agent.New(cfg, mcp.New(game.URL, "sim"), laya.New(ls.URL), llm, log)
+	heard := a.WithVoice(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -86,7 +91,7 @@ func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
 			t.Errorf("agent stopped: %v", err)
 		}
 	}()
-	r := &run{t: t, w: w, giga: g, log: buf, a: a}
+	r := &run{t: t, w: w, giga: g, log: buf, a: a, heard: heard}
 	t.Cleanup(func() {
 		cancel()
 		<-done
@@ -630,5 +635,165 @@ func TestSimTwitchViewer(t *testing.T) {
 		if strings.Contains(p, "устрой салют") && !strings.Contains(p, "зритель стрима") {
 			t.Errorf("the prompt does not say it is a viewer: %q", p)
 		}
+	}
+}
+
+func TestSimPublicServerWalksWithNormalPlayerPermissions(t *testing.T) {
+	for _, mode := range []string{"survival", "creative"} {
+		t.Run(mode, func(t *testing.T) {
+			r := startSim(t, sim.Options{Mode: mode, Fork: true, GamemodeWorks: true, FreeSlots: 10, WalkSpeed: 100}, func(c *agent.Config) {
+				c.PublicServer = true
+				c.PublicCreative = false // walking like any player; the crossed mode is its own switch
+				c.AutoCreative = true
+				c.CreativeCommand = "/gamemode creative"
+				c.Home = &explore.Pos{X: -471, Z: -183}
+			})
+			r.w.AddPlayer("Alex", 80, 0)
+			r.ready()
+			r.w.Say("Alex", "Пыхтун, прилетай ко мне")
+			r.waitFor("walk to Alex", 3*time.Second, func() bool { return r.w.Has("cmd", "@follow Alex") })
+			r.waitFor("reach Alex on foot", 3*time.Second, func() bool { return r.w.DistanceTo("Alex") < 3 })
+			r.waitFor("reply about walking", 3*time.Second, func() bool { return r.w.Has("say", "следом") })
+			for _, tool := range []string{"flyTo", "flyFollow", "creativeGive", "hoverTo", "tidyInventory", "setFavoriteItem"} {
+				if r.w.Has("tool", tool) {
+					t.Errorf("public mode used %s", tool)
+				}
+			}
+			if r.w.Has("cmd", "/gamemode creative") || strings.Contains(r.log.String(), "home set from config") {
+				t.Error("public mode inherited private server settings")
+			}
+		})
+	}
+}
+
+func TestSimOverlappingVoiceKeepsEverySpeaker(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	r.ready()
+	r.giga.Delay = 250 * time.Millisecond
+	r.heard <- voice.Heard{Nick: "Lena", Text: "На мосту стоит вагонетка"}
+	names := []string{"Arca", "Alex", "Mira", "Rob"}
+	for _, nick := range names {
+		r.heard <- voice.Heard{Nick: nick, Text: "Пыхтун, привет"}
+	}
+	r.waitFor("a reply for every speaker", 5*time.Second, func() bool {
+		return r.w.Count("say", "") >= len(names)
+	})
+	calls := r.giga.Calls()
+	for i, nick := range names {
+		if i >= len(calls) || !strings.Contains(calls[i], "Игрок "+nick+": Пыхтун, привет") || !strings.Contains(calls[i], "Lena: На мосту стоит вагонетка") {
+			t.Fatalf("missing speaker, conversation context or reply order at %s", nick)
+		}
+	}
+}
+
+func TestSimPublicExploreChangesBlockedDestination(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true, WalkSpeed: 0.01}, func(c *agent.Config) {
+		c.PublicServer = true
+		c.Explore = true
+		c.ExploreRadius = 2
+		c.ExploreAfter = 0
+	})
+	r.ready()
+	r.waitFor("first exploration target", 3*time.Second, func() bool { return r.w.Has("cmd", "@goto 8 8") })
+	r.waitFor("a new exploration target after the blocked walk", 10*time.Second, func() bool {
+		for _, line := range strings.Split(r.log.String(), "\n") {
+			if strings.Contains(line, "explore: walking") && !strings.Contains(line, "x=8 z=8") {
+				return true
+			}
+		}
+		return false
+	})
+	if n := r.w.Count("cmd", "@goto 8 8"); n != 1 {
+		t.Fatalf("sent the blocked destination %d times", n)
+	}
+}
+
+func TestSimPublicCrowdCanTalkDuringWalk(t *testing.T) {
+	for _, players := range []int{1, 40, 100} {
+		t.Run(fmt.Sprintf("%d_players", players), func(t *testing.T) {
+			r := startSim(t, sim.Options{Mode: "survival", Fork: true, WalkSpeed: 3}, func(c *agent.Config) {
+				c.PublicServer, c.Explore = true, true
+				c.ExploreAfter = time.Second
+				c.ExploreRadius = 2
+			})
+			// The crowd stands off in the distance (100+ blocks): with people right next to him the
+			// bot now stays with them instead of scouting (crowd.go), and walking past a far crowd
+			// whose chatter reaches the chat is what this test is about.
+			for i := 0; i < players; i++ {
+				r.w.AddPlayer(fmt.Sprintf("Player%d", i), 100+float64(i%10), 100+float64(i/10))
+			}
+			r.waitFor("walk under way", 4*time.Second, func() bool { return r.w.Has("cmd", "@goto 8 8") })
+			for i := 0; i < 12; i++ {
+				r.w.Say(fmt.Sprintf("Player%d", i%players), fmt.Sprintf("Встречаемся у моста %d", i))
+			}
+			x0, z0 := r.w.Bot()
+			time.Sleep(400 * time.Millisecond)
+			x1, z1 := r.w.Bot()
+			if r.w.Count("say", "") != 0 || r.w.Has("cmd", "@stop") {
+				t.Fatal("background chatter interrupted the walk")
+			}
+			at := time.Now()
+			r.w.Say("Player0", "Пыхтун, привет!")
+			r.waitFor("reply to greeting", 2*time.Second, func() bool { return r.w.Count("say", "") == 1 })
+			latency := time.Since(at)
+			time.Sleep(400 * time.Millisecond)
+			x2, z2 := r.w.Bot()
+			background := math.Hypot(x1-x0, z1-z0)
+			greeting := math.Hypot(x2-x1, z2-z1)
+			t.Logf("background travel %.2f blocks; after greeting %.2f blocks; reply %v", background, greeting, latency.Round(time.Millisecond))
+			if background < 0.5 || greeting < 0.5 || r.w.Has("cmd", "@stop") {
+				t.Error("conversation stopped the public exploration route")
+			}
+			r.w.Say("Player0", "Пыхтун, стой")
+			r.waitFor("explicit stop answered", 2*time.Second, func() bool { return r.w.Count("say", "") == 2 })
+			stoppedX, stoppedZ := r.w.Bot()
+			time.Sleep(100 * time.Millisecond)
+			x, z := r.w.Bot()
+			if !r.w.Has("cmd", "@stop") || math.Hypot(x-stoppedX, z-stoppedZ) > 0.1 {
+				t.Error("ignored the explicit stop")
+			}
+		})
+	}
+}
+
+func TestSimPublicTalksToNearbyPlayersWithoutName(t *testing.T) {
+	for _, source := range []string{"local", "voice", "vanilla", "request"} {
+		t.Run(source, func(t *testing.T) {
+			r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+			r.w.AddPlayer("Alex", 3, 4)
+			r.w.AddPlayer("AlexFar", 40, 0)
+			r.w.AddPlayer("Mira", 2, 2)
+			r.ready()
+			r.w.ChatLine("ɢ | Clan | Игрок [I] Alex » кто тут?")
+			r.w.ChatLine("ʟ | Clan | Игрок [I] AlexFar » Привет!")
+			r.w.ChatLine("ʟ | Clan | Игрок [I] Alex » Mira, как дела?")
+			r.heard <- voice.Heard{Nick: "AlexF", Text: "Привет!"}
+			r.heard <- voice.Heard{Nick: "AlexFar", Text: "Слышишь меня?"}
+			time.Sleep(150 * time.Millisecond)
+			if len(r.giga.Calls()) != 0 {
+				t.Fatal("answered global, distant, unknown or misaddressed speech")
+			}
+			switch source {
+			case "local":
+				r.w.ChatLine("§7ʟ | Clan | Игрок [I] Alex » Привет!")
+			case "voice":
+				r.heard <- voice.Heard{Nick: "Alex", Text: "Как тебя зовут"}
+			case "vanilla":
+				r.w.Say("Alex", "Ты меня слышишь?")
+			case "request":
+				r.w.Say("Alex", "Иди за мной?")
+			}
+			r.waitFor("reply without a name", 2*time.Second, func() bool { return r.w.Count("say", "") == 1 })
+			if !strings.Contains(r.giga.Calls()[0], "Игрок Alex:") {
+				t.Fatal("lost the speaker")
+			}
+			r.w.Say("Mira", "Привет!")
+			r.w.Say("Alex", "Пойдёшь за мной?")
+			r.w.ChatLine("ɢ | Clan | Игрок [I] AlexFar » Пыхтун, привет")
+			r.waitFor("explicit public mention during cooldown", 2*time.Second, func() bool { return r.w.Count("say", "") >= 2 })
+			if len(r.giga.Calls()) != 2 || !strings.Contains(r.giga.Calls()[1], "Игрок AlexFar:") || r.w.Has("cmd", "@follow") {
+				t.Fatal("nearby conversation leaked into commands or bypassed cooldown")
+			}
+		})
 	}
 }

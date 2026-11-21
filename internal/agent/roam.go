@@ -183,6 +183,40 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 		a.stillPos, a.stillSince = pos, time.Now()
 		return false // walking: the follow goes on, the mod re-plans
 	}
+	if a.cfg.PublicServer && (a.trip != nil || (a.activity != nil && a.activity.kind != "backtrack")) {
+		if a.trip != nil || a.activity.kind == "scout" {
+			a.skipScoutChunk(explore.ChunkOf(explore.Pos{X: float64(tx), Z: float64(tz)}))
+		}
+		a.log.Info("explore: route blocked, choosing another path", "x", tx, "z", tz)
+		a.activity = nil
+		a.cancelTrip(ctx)
+		if !a.tryLevelDetour(ctx, pos, tx, tz) && time.Since(a.lastBlockedAt) < 45*time.Second && math.Hypot(pos.X-a.lastBlockedPos.X, pos.Z-a.lastBlockedPos.Z) < 3 {
+			for i := len(a.walkTrail) - 1; i >= 0; i-- {
+				p := a.walkTrail[i]
+				dist := math.Hypot(pos.X-p.X, pos.Z-p.Z)
+				if dist < 4 || dist > 12 || math.Abs(p.Y-pos.Y) > 1.5 {
+					continue
+				}
+				x, y, z := explore.Block(p.X), explore.Block(p.Y), explore.Block(p.Z)
+				cmd := fmt.Sprintf("@goto %d %d %d", x, y, z)
+				if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": cmd}); err == nil {
+					a.activity = &activity{kind: "backtrack", x: x, z: z, started: time.Now()}
+					a.log.Info("explore: walking back to known ground", "x", x, "y", y, "z", z)
+				}
+				a.walkTrail = nil
+				break
+			}
+		}
+		a.lastBlockedPos, a.lastBlockedAt = pos, time.Now()
+		a.stillPos, a.stillSince = pos, time.Now()
+		return true
+	}
+	if a.activity != nil && a.activity.kind == "backtrack" {
+		a.activity = nil
+		a.cancelTrip(ctx)
+		a.stillPos, a.stillSince = pos, time.Now()
+		return true
+	}
 	angle := rand.Float64() * 2 * math.Pi
 	dist := 6 + rand.Float64()*4
 	x, z := explore.Block(pos.X+dist*math.Cos(angle)), explore.Block(pos.Z+dist*math.Sin(angle))
@@ -195,6 +229,23 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	}
 	a.stillPos, a.stillSince = pos, time.Now()
 	return true
+}
+
+// recordGroundPosition keeps nearby places where the player's feet actually stood.
+func (a *Agent) recordGroundPosition(pos explore.Pos) {
+	if n := len(a.walkTrail); n > 0 {
+		prev := a.walkTrail[n-1]
+		d := math.Hypot(prev.X-pos.X, prev.Z-pos.Z)
+		if d > 20 || math.Abs(prev.Y-pos.Y) > 4 {
+			a.walkTrail = nil
+		} else if d < 2 {
+			return
+		}
+	}
+	if len(a.walkTrail) == 8 {
+		a.walkTrail = a.walkTrail[1:]
+	}
+	a.walkTrail = append(a.walkTrail, pos)
 }
 
 // roam advances exploration by one step. It only runs while nobody needs the bot:
@@ -238,12 +289,13 @@ func (a *Agent) roam(ctx context.Context) {
 		return
 	}
 	a.writeMap()
-	if a.checkWater(ctx) {
+	if a.checkGroundMovement(ctx, busy) {
 		return
 	}
 	if a.checkStuck(ctx, pos, busy) {
 		return
 	}
+	a.driveStride(ctx, pos, busy)
 	a.checkGame(ctx, pos)
 	a.checkBeacon(ctx, pos)
 	if h := a.cfg.Home; h != nil && (a.places.Home == nil || a.places.Home.X != h.X || a.places.Home.Z != h.Z) {
@@ -357,20 +409,35 @@ func (a *Agent) roam(ctx context.Context) {
 		if a.trip != nil {
 			a.cancelTrip(ctx)
 		}
+		a.hangAround(ctx, pos, busy)
 		return
 	}
 
 	if a.trip == nil {
+		// With people: stay with them, do not scout off. Before the ExploreAfter wait: in a crowd
+		// somebody always says something, the wait never ran out and he stood still (21.11).
+		if time.Since(a.lastCommand) >= hangAfterCommand && time.Since(a.lastRequest) > 30*time.Second && a.amongPeople(ctx) {
+			a.hangAround(ctx, pos, busy)
+			return
+		}
 		if time.Since(a.lastCommand) < a.cfg.ExploreAfter {
 			return
 		}
+		if a.startCrowdVisit(ctx) {
+			return // people first; empty chunks when nobody is around
+		}
+		if a.strideOn() && time.Now().Before(a.wanderUntil) {
+			return // boxed in: driveStride wanders the reachable ground for a while
+		}
 		home := explore.ChunkOf(*a.places.Home)
-		next, ok := explore.Next(home, explore.ChunkOf(pos), a.cfg.ExploreRadius, a.places.VisitedSet())
+		next, ok := a.nextScoutChunk(home, explore.ChunkOf(pos), a.cfg.ExploreRadius)
 		if !ok {
 			return // whole area explored
 		}
 		x, z := next.Center()
-		if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
+		if a.strideOn() {
+			a.stride = nil // driveStride takes it from the next tick, stride by stride
+		} else if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
 			a.log.Warn("explore goto", "err", err)
 			return
 		}
@@ -385,6 +452,17 @@ func (a *Agent) roam(ctx context.Context) {
 	if math.Hypot(pos.X-float64(x), pos.Z-float64(z)) < arriveDist {
 		a.survey(ctx, pos, t.target)
 		a.trip = nil
+		if a.strideOn() {
+			// Straight on to the next chunk while still walking: on SkyBars every arrival used to
+			// stand 3-4 s before the next walk started (21.11).
+			home := explore.ChunkOf(*a.places.Home)
+			if next, ok := a.nextScoutChunk(home, explore.ChunkOf(pos), a.cfg.ExploreRadius); ok {
+				now := time.Now()
+				a.trip = &trip{target: next, started: now, lastPos: pos, lastMove: now}
+				nx, nz := next.Center()
+				a.log.Info("explore: walking", "x", nx, "z", nz)
+			}
+		}
 		return
 	}
 	if math.Hypot(pos.X-t.lastPos.X, pos.Z-t.lastPos.Z) > 1 {
@@ -392,8 +470,7 @@ func (a *Agent) roam(ctx context.Context) {
 	}
 	if time.Since(t.lastMove) > stuckAfter || time.Since(t.started) > tripTimeout {
 		a.log.Info("explore: giving up on chunk", "x", x, "z", z)
-		a.places.MarkVisited(t.target) // unreachable for now; do not retry forever
-		a.savePlaces()
+		a.skipScoutChunk(t.target)
 		a.cancelTrip(ctx)
 	}
 }
@@ -546,7 +623,11 @@ func (a *Agent) placesNote() string {
 		return ""
 	}
 	h := *a.places.Home
-	note := fmt.Sprintf("- твоя нора (вход): x=%d y=%d z=%d, %d блоков на %s\n", explore.Block(h.X), explore.Block(h.Y), explore.Block(h.Z),
+	label := "твоя нора (вход)"
+	if a.cfg.PublicServer {
+		label = "точка встречи"
+	}
+	note := fmt.Sprintf("- %s: x=%d y=%d z=%d, %d блоков на %s\n", label, explore.Block(h.X), explore.Block(h.Y), explore.Block(h.Z),
 		int(math.Hypot(h.X-a.pos.X, h.Z-a.pos.Z)), explore.Direction(a.pos, h.X, h.Z))
 	return note + a.places.Describe(a.pos, 5)
 }

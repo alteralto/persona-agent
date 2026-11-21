@@ -48,6 +48,11 @@ func (a *Agent) maybeActivity(ctx context.Context) bool {
 	if time.Since(a.lastActivity) < a.cfg.ActivityEvery || time.Now().Before(a.lingerUntil) {
 		return a.mingle(ctx)
 	}
+	// With people around on a public server: talk to them, no sign tours, strolls or scouting
+	// that walk him away from them (SkyBars, 21.11).
+	if a.amongPeople(ctx) {
+		return a.mingle(ctx)
+	}
 	a.lastActivity = time.Now()
 	// FlightShare > 0 (flight testing): that share of activities are flights, the rest as usual.
 	if a.cfg.FlightShare > 0 && rand.Float64() < a.cfg.FlightShare && a.startFlightShow(ctx) {
@@ -106,8 +111,13 @@ func (a *Agent) startSignTour(ctx context.Context) bool {
 	for _, s := range a.signsNear(ctx, 48) {
 		s := s
 		text := signText(s)
-		if text == "" || mostlyNumbers(text) || s.Distance < 4 || a.readSigns[s.Pos] {
+		// The same text on many signs (a spawn's "нажми на кнопку для поддержки" three times in two
+		// minutes, 21.11) is one sign.
+		if text == "" || mostlyNumbers(text) || s.Distance < 4 || a.readSigns[s.Pos] || a.readSigns[signKey(text)] {
 			continue
+		}
+		if a.cfg.PublicServer && serverSign(text) {
+			continue // a server's adverts: not worth a walk
 		}
 		best = &s
 		break // nearest first
@@ -124,6 +134,7 @@ func (a *Agent) startSignTour(ctx context.Context) bool {
 	}
 	a.activity = &activity{kind: "sign", x: x, z: z, label: signText(*best), started: time.Now()}
 	a.readSigns[best.Pos] = true
+	a.readSigns[signKey(a.activity.label)] = true
 	a.log.Info("activity: reading a sign", "text", a.activity.label, "x", x, "z", z)
 	return true
 }
@@ -137,7 +148,7 @@ func (a *Agent) startScout(ctx context.Context) bool {
 	if a.places.Home != nil {
 		center, radius = explore.ChunkOf(*a.places.Home), max(a.cfg.ExploreRadius, 4)
 	}
-	next, ok := explore.Next(center, cur, radius, a.places.VisitedSet())
+	next, ok := a.nextScoutChunk(center, cur, radius)
 	if !ok {
 		return false
 	}
@@ -163,6 +174,9 @@ func (a *Agent) startFlightShow(ctx context.Context) bool {
 		styleTricks: "взлетаешь и будешь крутить фигуры в небе — бочку, свечу, спираль; зажмуриваешься от страха",
 		styleRoute:  "облетаешь окрестности по кругу и вернёшься к норе — смотришь на всё сверху",
 	}[style]
+	if a.cfg.PublicServer {
+		how = "подлетаешь вверх и раскрываешь элитры прямо над всеми"
+	}
 	a.announceTakeoff("Ты сам решил полетать: "+how+". Скажи об этом одной короткой фразой до 90 символов, в характере.", nil)
 	return true
 }
@@ -184,13 +198,34 @@ func (a *Agent) startSaluteShow(ctx context.Context) bool {
 // checkActivity runs while an activity is under way.
 func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 	act := a.activity
+	if act.kind == "backtrack" {
+		if math.Hypot(pos.X-float64(act.x), pos.Z-float64(act.z)) < 1.5 || time.Since(act.started) > 6*time.Second {
+			a.activity = nil
+			a.cancelTrip(ctx)
+		}
+		return
+	}
 	if math.Hypot(pos.X-float64(act.x), pos.Z-float64(act.z)) < 4.5 {
 		a.activity = nil
-		a.lingerFor(activityLinger)
+		linger := activityLinger
+		if a.cfg.PublicServer {
+			// On a public server standing about reads as broken: a glance and on (21.11).
+			switch act.kind {
+			case "scout", "stroll":
+				linger = 0
+			case "sign":
+				linger = 3 * time.Second
+			}
+		}
+		a.lingerFor(linger)
 		switch act.kind {
 		case "sign":
 			a.places.Add(explore.Place{Desc: "табличка «" + act.label + "»", X: act.x, Z: act.z, Seen: time.Now()})
 			a.savePlaces()
+			if a.cfg.PublicServer && (serverSign(act.label) || time.Since(a.lastSignTalk) < signTalkEvery) {
+				break // the spawn's adverts, or a comment just made: read it silently
+			}
+			a.lastSignTalk = time.Now()
 			a.enqueue(replyJob{
 				prompt: fmt.Sprintf("Ты подошёл к табличке, на ней написано: «%s». Прочитай её вслух своими "+
 					"словами и коротко прокомментируй, в характере. Одна-две фразы до 120 символов.", act.label),
@@ -203,7 +238,11 @@ func (a *Agent) checkActivity(ctx context.Context, pos explore.Pos) {
 			a.lingerFor(markStay) // stay at the mark a while
 			a.celebrate(ctx, "mark")
 		case "visit":
-			a.lingerFor(visitStay) // stay near them a while, doing its own things
+			if a.cfg.PublicServer {
+				a.lingerFor(publicVisitStay)
+			} else {
+				a.lingerFor(visitStay) // stay near them a while, doing its own things
+			}
 			a.celebrate(ctx, "visit")
 			if time.Since(a.greeted[act.label]) > time.Hour {
 				a.greeted[act.label] = time.Now()
@@ -283,11 +322,41 @@ func (a *Agent) walkTo(ctx context.Context, x, z int) bool {
 	if math.Hypot(float64(x)-a.pos.X, float64(z)-a.pos.Z) > a.flyAbove() && a.startFlight(ctx, x, z) {
 		return true
 	}
+	if a.strideOn() {
+		a.stride = nil // walk.go walks it stride by stride from the next tick
+		return true
+	}
 	if _, err := a.mc.Call(ctx, "ExecuteCommand", map[string]any{"cmd": fmt.Sprintf("@goto %d %d", x, z)}); err != nil {
 		a.log.Warn("activity goto", "err", err)
 		return false
 	}
 	return true
+}
+
+const (
+	publicTalkEvery = 20 * time.Second // public server: an unasked line to someone this often at most (short lines now)
+	publicTalkSame  = 2 * time.Minute  // ... and to the same player
+	overheardFresh  = 45 * time.Second // what a player said this recently is worth picking up
+	signTalkEvery   = 3 * time.Minute  // public server: at most one comment on a sign this often
+	publicVisitStay = 25 * time.Second // public server: a short stop by a player, then on
+)
+
+// signKey: a sign's text as a readSigns key, so signs with the same words count once.
+func signKey(text string) string {
+	return "text:" + strings.Join(strings.Fields(strings.ToLower(text)), " ")
+}
+
+// serverSign: a server's own notice (adverts, donations, links, rules), not a player's sign.
+func serverSign(text string) bool {
+	t := strings.ToLower(text)
+	for _, w := range []string{"скача", "донат", "купи", "магазин", "подарок", "поддерж", "сервер", "акци",
+		"скидк", "http", "www", ".ru", ".me", ".com", "t.me", "vk.com", "discord", "telegram", "телеграм",
+		"/warp", "/spawn", "правил", "нажми", "кликни"} {
+		if strings.Contains(t, w) {
+			return true
+		}
+	}
+	return false
 }
 
 func signText(s sign) string {
@@ -309,14 +378,37 @@ func parseBlockPos(s string) (int, int, bool) {
 	return x, z, err1 == nil && err2 == nil
 }
 
-// dropScoutTarget marks a scout target the bot could not reach (a lake, a cliff) as seen, so the
-// next scout picks another one: it went back to the same lake chunk again and again.
+// dropScoutTarget skips the destination of an unsuccessful scouting walk.
 func (a *Agent) dropScoutTarget(act *activity) {
 	if act == nil || act.kind != "scout" {
 		return
 	}
-	a.places.MarkVisited(explore.ChunkOf(explore.Pos{X: float64(act.x), Z: float64(act.z)}))
+	a.skipScoutChunk(explore.ChunkOf(explore.Pos{X: float64(act.x), Z: float64(act.z)}))
+}
+
+func (a *Agent) skipScoutChunk(chunk explore.Chunk) {
+	if a.cfg.PublicServer {
+		if a.blockedChunks == nil {
+			a.blockedChunks = make(map[explore.Chunk]time.Time)
+		}
+		a.blockedChunks[chunk] = time.Now().Add(2 * time.Minute)
+		return
+	}
+	a.places.MarkVisited(chunk)
 	a.savePlaces()
+}
+
+func (a *Agent) nextScoutChunk(home, current explore.Chunk, radius int) (explore.Chunk, bool) {
+	skip := a.places.VisitedSet()
+	now := time.Now()
+	for chunk, until := range a.blockedChunks {
+		if now.Before(until) {
+			skip[chunk] = true
+		} else {
+			delete(a.blockedChunks, chunk)
+		}
+	}
+	return explore.Next(home, current, radius, skip)
 }
 
 // mingleEvery: while he stays among people, one small thing of his own this often.
@@ -372,18 +464,44 @@ func (a *Agent) mingle(ctx context.Context) bool {
 			a.log.Info("mingle: steps closer", "player", near.name)
 		}
 	}
-	i := rand.IntN(len(mingleTopics) - 1)
-	if i >= a.lastTopicMingle { // never the same topic twice running
-		i++
+	if a.cfg.PublicServer {
+		// A stranger every 25 s with the same eight jokes read as spam on SkyBars (21.11): a line
+		// now and then, and each player hears one at most every few minutes.
+		if time.Since(a.lastPublicTalk) < publicTalkEvery || time.Since(a.talkedTo[strings.ToLower(near.name)]) < publicTalkSame {
+			return false
+		}
+		if a.talkedTo == nil {
+			a.talkedTo = map[string]time.Time{}
+		}
+		a.lastPublicTalk = time.Now()
+		a.talkedTo[strings.ToLower(near.name)] = time.Now()
+		// They just said something (to someone else): pick that up, like a neighbour who overheard.
+		// On SkyBars (21.11) a player next to him could not lie down on a bed and he offered "a pot
+		// for fish soup" from the stock topics.
+		if l, ok := a.lastSaidBy[strings.ToLower(near.name)]; ok && time.Since(l.at) < overheardFresh && len(words(l.text)) >= 2 {
+			a.log.Info("mingle: picks up what they said", "player", near.name, "text", l.text)
+			a.lastSpoke.Store(time.Now().UnixNano())
+			a.enqueue(replyJob{
+				ambient: true,
+				nick:    near.name,
+				prompt: fmt.Sprintf("Игрок %s в %d блоках от тебя только что сказал, не тебе: «%s». Вставь одну "+
+					"короткую живую реплику по этому поводу, как сосед, который случайно услышал: подхвати "+
+					"шуткой или дружеским советом, не поучай и не пересказывай его слова. До 90 символов.",
+					near.name, int(near.dist), l.text),
+				history: append([]string(nil), a.history...),
+				at:      time.Now(),
+			})
+			return true
+		}
 	}
-	a.lastTopicMingle = i
-	topic := mingleTopics[i]
-	if t := a.favoriteTopic(favoriteMingleTopic); t != "" {
-		topic = t
+	topic := a.conversationTopic(mingleTopics, &a.lastTopicMingle, favoriteMingleTopic)
+	if topic == "" {
+		return false // every stock topic used lately: quiet rather than a repeat
 	}
 	a.log.Info("mingle: talks", "player", near.name, "topic", topic)
 	a.lastSpoke.Store(time.Now().UnixNano())
 	a.enqueue(replyJob{
+		ambient: true,
 		prompt: fmt.Sprintf("Рядом с тобой игрок %s, в %d блоках. Заговори с ним сам, по имени: %s. "+
 			"Одна живая фраза до 90 символов, в характере, не повторяй то, что уже говорил.",
 			spokenName(near.name), int(near.dist), topic),
@@ -424,4 +542,10 @@ func mostlyNumbers(text string) bool {
 		}
 	}
 	return digits > letters
+}
+
+// saidLine is what a player said last, in chat or aloud (handleMessage).
+type saidLine struct {
+	text string
+	at   time.Time
 }

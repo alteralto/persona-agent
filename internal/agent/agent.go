@@ -59,7 +59,12 @@ type Config struct {
 	// Home: where the bot lives, set by hand ("x,z"); nil = where it first stood.
 	Home *explore.Pos
 	// FlightShare: share of activities that are flights (0 = the usual mix, 15 %).
-	FlightShare     float64
+	FlightShare  float64
+	PublicServer bool
+	// PublicCreative: on a public server that gives creative by itself, use it (flights,
+	// hovering, salutes, flying over walls) -- the "crossed" mode. Off: walk like any player.
+	PublicCreative  bool
+	LevelWalkView   func(context.Context) error
 	AutoCreative    bool
 	CreativeCommand string
 	// OthersNames: how players call the other bots ("пончик", "nettyan"). A bot line that
@@ -97,30 +102,78 @@ type Agent struct {
 	smart *giga.Client
 	log   *slog.Logger
 
-	history    []string // recent player lines, "Nick: text"
-	following  string
-	botReplies int
-	lastReply  time.Time
-	lastSpoke  atomic.Int64 // unix nanos of the last chat line the bot sent
-	replyQueue chan replyJob
+	history       []string // recent player lines, "Nick: text"
+	following     string
+	botReplies    int
+	lastReply     time.Time
+	lastSpoke     atomic.Int64 // unix nanos of the last chat line the bot sent
+	replyQueue    chan replyJob
+	directReplies chan replyJob
 
-	places      *explore.Places
-	trip        *trip
-	pos         explore.Pos
-	havePos     bool
-	lastCommand time.Time
+	places             *explore.Places
+	blockedChunks      map[explore.Chunk]time.Time // retry times for public exploration in this world
+	groundSnapshot     string                      // mod state from the current ground-movement tick
+	trip               *trip
+	pos                explore.Pos
+	havePos            bool
+	lastCommand        time.Time
+	lastViewCorrection time.Time
+	waitForGround      bool
+	walkTrail          []explore.Pos
+	lastBlockedPos     explore.Pos
+	lastBlockedAt      time.Time
+	stride             *stride // walk.go: the short walk under way on a public server
+	strideFails        int
+	visits             map[[2]int]int
+	lastVisitCell      [2]int
+	noWay              []time.Time
+	wanderUntil        time.Time
+	lastSignTalk       time.Time
+	pendingLaunch      *hoverLaunch // modtools.go: an elytra flight waiting for the creative climb
+	launchVia          *hoverLaunch // set while that flight is started from the air
+	lastPublicTalk     time.Time
+	talkedTo           map[string]time.Time
+	lastSaidBy         map[string]saidLine         // the last thing each player said, in chat or aloud
+	crowdSeen          map[explore.Chunk]time.Time // crowd.go: groups of players already visited
+	lastCrowdLook      time.Time
+	lastHang           time.Time
+	peopleAt           time.Time
+	peopleDist         float64
+	hangPos            explore.Pos
+	hangGoal           [2]int // crowd.go: where the last step among people went, and how it goes
+	hangGoalSet        bool
+	hangWho            string
+	hangBest           float64
+	hangProgressAt     time.Time
+	hangSkip           map[string]time.Time
+	hangSince          time.Time // with this group since; at hangAnchor
+	hangAnchor         explore.Pos
+	leaveUntil         time.Time // moved on from a group: not held by people till then
+	noDirectUntil      time.Time // walk.go: no straight long walk before this (the last one stalled)
+	reflexUntil        time.Time // reflex.go: the mod fights or flees; no own walks till then
+	inReflex           bool
+	foughtWith         map[string]time.Time
+	lastFightTalk      time.Time
 
 	outing          *outing
 	protected       bool
 	ownLines        []string // last lines the bot said; touched only by replyWorker
 	takeoffLines    []string // its last take-off announcements; touched only by replyWorker
 	lastTakeoffSay  time.Time
+	publicTopic     int
 	lastTopic       int
 	stillPos        explore.Pos
 	stillSince      time.Time
 	stuckCount      int // stuck spells in a row, a minute and a half apart at most
 	lastStuck       time.Time
-	lastChime       time.Time // the last time he joined a talk he was not named in
+	lastChime       time.Time              // the last time he joined a talk he was not named in
+	chatPlayers     map[string]bool        // visible nicks; true when within speaking distance
+	chatFacing      map[string]bool        // nicks next to the bot and looking at it (nearby.go)
+	chatDist        map[string]float64     // distance to each visible nick, from the same lookup
+	nearbyAnswers   map[string][]time.Time // unnamed answers to each player in the last minute
+	lastAnswered    string                 // the player the last direct answer went to
+	topicUsed       map[int]time.Time      // public stock topics: when each was last used
+	chatPlayersAt   time.Time
 	lastMingle      time.Time // the last small thing he did among people (activity.go)
 	lastTopicMingle int
 	lastViewer      time.Time // the last answer to the stream chat
@@ -231,14 +284,25 @@ type replyJob struct {
 	action   string
 	places   string // known places near the bot, for "where is ..." questions
 	creative bool
-	takeoff  bool // a line about going up: told its earlier ones, remembered among them
+	ambient  bool     // an unsolicited idle or mingle line
+	takeoff  bool     // a line about going up: told its earlier ones, remembered among them
 	avoid    []string // stems the reply must not say (a riddle's own place): one rewrite if it does
 	at       time.Time
 }
 
 func New(cfg Config, mc *mcp.Client, l *laya.Client, llm *giga.Client, log *slog.Logger) *Agent {
-	a := &Agent{cfg: cfg, mc: mc, laya: l, llm: llm, log: log, replyQueue: make(chan replyJob, 1),
+	if cfg.PublicServer {
+		cfg.Creative, cfg.AutoCreative, cfg.AllowBreak = false, false, false
+		cfg.Home, cfg.Companions, cfg.OtherBots = nil, nil, nil
+		cfg.PlacesPath, cfg.MarksDir = "", ""
+		cfg.FlightShare = 0
+		cfg.RequireMention = true
+	}
+	a := &Agent{cfg: cfg, mc: mc, laya: l, llm: llm, log: log, replyQueue: make(chan replyJob, 1), directReplies: make(chan replyJob, 16),
 		heard: make(chan voice.Heard, 4), twitch: make(chan twitch.Message, 8), creative: cfg.Creative, journal: newJournal(cfg.JournalPath), readSigns: map[string]bool{}}
+	if cfg.PublicServer {
+		a.publicTopic = rand.IntN(len(publicTopics))
+	}
 	if cfg.PeopleDir != "" {
 		a.people = memory.New(cfg.PeopleDir)
 	}
@@ -402,11 +466,22 @@ func (a *Agent) handleLine(ctx context.Context, line string) {
 		a.navGaveUp = time.Now()
 		return
 	}
+	if a.noteReflex(ctx, line) {
+		return
+	}
 	msg, ok := chatlog.Parse(line)
 	if !ok {
 		return
 	}
 	a.handleMessage(ctx, msg, "chat")
+}
+
+// interruptExploration delays the next autonomous walk and releases the current route.
+func (a *Agent) interruptExploration(ctx context.Context) {
+	a.lastCommand = time.Now()
+	if a.trip != nil {
+		a.cancelTrip(ctx)
+	}
 }
 
 // handleMessage is shared by text chat and recognized speech.
@@ -415,13 +490,26 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		return
 	}
 	start := time.Now()
+	if a.lastSaidBy == nil || len(a.lastSaidBy) > 500 {
+		a.lastSaidBy = map[string]saidLine{}
+	}
+	a.lastSaidBy[strings.ToLower(msg.Nick)] = saidLine{text: msg.Text, at: start}
 	fromBot := slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, msg.Nick) })
-	// Other AI characters talk to the bot without naming it; players must name it.
-	// Not named, he still joins the talk around him now and then, with words only.
+	nearbyTurn := false
 	if a.cfg.RequireMention && !fromBot && !a.mentioned(msg.Text) {
-		a.chimeIn(msg, start)
-		a.remember(msg)
-		return
+		if a.cfg.PublicServer {
+			nearbyTurn = a.nearbyConversation(ctx, msg, source, start)
+			if !nearbyTurn {
+				if source == "voice" {
+					a.remember(msg)
+				}
+				return
+			}
+		} else {
+			a.chimeIn(msg, start)
+			a.remember(msg)
+			return
+		}
 	}
 	// Speech recognition cuts bots' long monologues into scraps ("арк.", "Ветки по одной"):
 	// a short line with no question and no name is noise, not a turn to answer.
@@ -434,22 +522,46 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		a.remember(msg)
 		return
 	}
-	a.lastCommand = time.Now()
-	if a.trip != nil {
-		a.cancelTrip(ctx) // someone needs the bot: stop wandering and listen
+	if !a.cfg.PublicServer {
+		a.interruptExploration(ctx)
 	}
 	if !fromBot {
 		a.botReplies = 0
-		a.partner, a.partnerAt = msg.Nick, time.Now()
+		if !nearbyTurn {
+			a.partner, a.partnerAt = msg.Nick, start
+		}
 	}
 
-	answers, err := a.laya.Decide(ctx, situation(a.cfg.BotNick, a.history, msg.Nick, msg.Text), Questions(a.cfg.BotNick))
+	scene := situation(a.cfg.BotNick, a.history, msg.Nick, msg.Text)
+	if nearbyTurn {
+		scene = "Игрок находится рядом с ботом и говорит в местном чате или голосом. Он может не знать имени бота.\n" + scene
+	}
+	answers, err := a.laya.Decide(ctx, scene, Questions(a.cfg.BotNick))
 	if err != nil {
 		a.log.Warn("laya", "err", err)
 		return
 	}
 	d := decide(answers, a.cfg.MinConfidence)
 	d, byRule := applyRules(d, msg.Text)
+	if nearbyTurn {
+		// A nearby remark can start a conversation, never a movement or game.
+		d.Action, d.Agreed = ActWait, false
+	}
+	if a.cfg.PublicServer {
+		switch d.Action {
+		case ActFlyTo:
+			if target := flyTargetWord(msg.Text); target == "" || strings.EqualFold(target, msg.Nick) {
+				d.Action = ActFollow
+			} else {
+				d.Action = notePublicGround
+			}
+		case ActFly, ActFlyLow, ActFlyTricks, ActFlyRoute, ActSalute, ActSupply:
+			d.Action = notePublicGround
+		}
+		if d.Action != ActWait {
+			a.interruptExploration(ctx)
+		}
+	}
 	a.log.Info("decision", "nick", msg.Nick, "text", msg.Text, "action", d.Action, "agreed", d.Agreed,
 		"conf", round(d.ActionConf), "rule", byRule, "reply", d.Reply, "reply_conf", round(d.ReplyConf),
 		"laya_ms", time.Since(start).Milliseconds())
@@ -470,7 +582,10 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 	}
 
 	// Answer when called by name or when a command was accepted (so the player hears it).
-	if fromBot || a.mentioned(msg.Text) || d.Agreed && d.Action != ActWait {
+	// Also a line the nearby-talk rules took as said to him: on SkyBars (21.11) players a few
+	// blocks off asked him things aloud ("это бот, наверное", "вы не говорите английский?") and
+	// Laya's reply score (0.46) kept him silent every time.
+	if fromBot || nearbyTurn || a.mentioned(msg.Text) || d.Agreed && d.Action != ActWait {
 		d.Reply = true
 	}
 
@@ -483,18 +598,31 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		}
 	}
 	if d.Reply {
+		if nearbyTurn {
+			a.lastChime = start
+			a.partner, a.partnerAt = msg.Nick, start
+		}
 		places := a.placesNote()
 		if asksWhere(msg.Text) {
 			places += a.signsNote(ctx)
 		}
-		a.enqueue(replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: msg.Text, action: d.Action,
-			places: places, creative: a.creative, at: start})
+		job := replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: msg.Text, action: d.Action,
+			places: places, creative: a.creative, at: start}
+		if !fromBot && (nearbyTurn || source == "voice" || a.mentioned(msg.Text)) {
+			select {
+			case a.directReplies <- job:
+			case <-ctx.Done():
+				return
+			}
+		} else {
+			a.enqueue(job)
+		}
 	}
 
 	a.remember(msg)
 }
 
-// enqueue keeps only the newest job: GigaChat allows one stream, so a waiting job is
+// enqueue keeps only the newest background job: GigaChat allows one stream, so a waiting job is
 // replaced, never queued behind.
 func (a *Agent) enqueue(job replyJob) {
 	select {
@@ -509,15 +637,9 @@ func (a *Agent) enqueue(job replyJob) {
 // (not bots), who it may talk to. A topic of its own every time: one fixed "nobody talked to
 // you for a while" prompt gave "Опять тихо..." three times in four minutes on a busy spawn.
 func (a *Agent) idlePrompt(near []string) string {
-	// A different topic each time, never the same twice in a row.
-	i := rand.IntN(len(idleTopics) - 1)
-	if i >= a.lastTopic {
-		i++
-	}
-	a.lastTopic = i
-	topic := idleTopics[i]
-	if t := a.favoriteTopic(favoriteIdleTopic); t != "" {
-		topic = t
+	topic := a.conversationTopic(idleTopics, &a.lastTopic, favoriteIdleTopic)
+	if topic == "" {
+		topic = "спроси что-нибудь простое про то, что сейчас происходит рядом"
 	}
 	people := append(a.nearbyBots(), near...)
 	if len(people) == 0 {
@@ -527,6 +649,46 @@ func (a *Agent) idlePrompt(near []string) string {
 	return "Рядом с тобой " + who + ". Обратись к " + who + " по имени. Тема: " + topic + ". " +
 		"Одна короткая фраза до 90 символов. Не выдумывай, что собеседник делает, если этого нет в чате. " +
 		"Не говори, что вокруг тихо или никого нет."
+}
+
+// Idle turns and conversations with nearby players share the public rotation.
+func (a *Agent) conversationTopic(topics []string, last *int, stone string) string {
+	if a.cfg.PublicServer {
+		// Each stock topic once in topicRest: in turn every ~20 s the eight of them came round
+		// again within three minutes, to the same crowd (21.11). None rested: "" (say nothing).
+		if a.topicUsed == nil {
+			a.topicUsed = map[int]time.Time{}
+		}
+		for range publicTopics {
+			i := a.publicTopic
+			a.publicTopic = (a.publicTopic + 1) % len(publicTopics)
+			if time.Since(a.topicUsed[i]) >= topicRest {
+				a.topicUsed[i] = time.Now()
+				return publicTopics[i]
+			}
+		}
+		return ""
+	}
+	i := rand.IntN(len(topics) - 1)
+	if i >= *last {
+		i++
+	}
+	*last = i
+	if topic := a.favoriteTopic(stone); topic != "" {
+		return topic
+	}
+	return topics[i]
+}
+
+var publicTopics = []string{
+	"придумай дурацкое название для лавки, которая чинит только левые ботинки",
+	"спроси, какой местный ориентир годится для встречи двух заблудившихся гномов",
+	"поспорь сам с собой, сколько блоков падения превращают лестницу в аттракцион",
+	"предложи игроку выбрать звук для дверного звонка из звуков Minecraft",
+	"коротко сформулируй правило пиротехника, который очень дорожит бровями",
+	"спроси, как здесь называют самую запутанную дорожку",
+	"придумай короткую подпись для таблички у подозрительно удобной кнопки",
+	"выбери самый нелепый предмет на случай похода и объясни выбор",
 }
 
 var idleTopics = []string{
@@ -685,7 +847,14 @@ func (a *Agent) replyWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case job = <-a.replyQueue:
+		case job = <-a.directReplies:
+		default:
+			select {
+			case <-ctx.Done():
+				return
+			case job = <-a.directReplies:
+			case job = <-a.replyQueue:
+			}
 		}
 		action := job.action
 		var note []giga.Message
@@ -693,10 +862,22 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			note = freeMessages(job.history, job.prompt)
 		} else {
 			noteKey := action
+			if a.cfg.PublicServer && action == ActLead {
+				noteKey = notePublicLead
+			}
 			if action == ActSupply && job.creative && a.fork {
 				noteKey = noteSupplyCreative
 			}
 			note = replyMessages(job.history, job.nick, job.text, noteKey, job.places)
+		}
+		if a.cfg.PublicServer {
+			note[0].Content = publicCharacter + replyRules + publicChatStyle
+			// The model did not know what it had said a minute ago: "криперы близко — брови врозь!"
+			// twice in half a minute on SkyBars (21.11).
+			if len(a.ownLines) > 0 {
+				note[0].Content += "\n\nТвои последние реплики — не повторяй их ни словами, ни мыслью, скажи что-то новое:\n- " +
+					strings.Join(a.ownLines, "\n- ")
+			}
 		}
 		// Only when asked about it: on every line the note made it open five lines in six with
 		// "Обсидиан в ладони", "вспоминай редко" notwithstanding. Its own stone lines carry the
@@ -770,9 +951,43 @@ func (a *Agent) replyWorker(ctx context.Context) {
 				text = cleanReply(fixed)
 			}
 		}
-		if text == "" {
+		if modelRefusal(text) {
+			// GigaChat's stock refusal, said aloud on SkyBars (21.11): "как и любая языковая модель,
+			// GigaChat не обладает собственным мнением". Never in the character's mouth.
+			a.log.Info("dropped a model refusal", "text", text)
+			if job.ambient {
+				continue
+			}
+			text = refusalStandIns[rand.IntN(len(refusalStandIns))]
+		}
+		if a.cfg.PublicServer {
+			text = firstSentences(withoutBookWords(text), publicMaxRunes) // chat-sized, and two seconds of speech, not eight
+		}
+		if a.cfg.PublicServer && !hasTopicWord(job.text, teaWord) && !hasTopicWord(job.text, burrowWord) {
+			if rest := withoutHomeTalk(text); rest != "" {
+				text = rest
+			} else if job.ambient {
+				continue
+			}
+		}
+		spoken := text
+		text = chatReply(text)
+		// On a public server a repeat is skipped for answers too: a troll got "эй, ___xooox___,
+		// брови береги!" three times running (21.11).
+		// Answers to the same player as last time only: different players may each get the same
+		// greeting.
+		repeat := a.cfg.PublicServer && repeatsPublicAside(text, a.ownLines) &&
+			(job.ambient || strings.EqualFold(job.nick, a.lastAnswered))
+		if text == "" || repeat {
+			if text != "" {
+				a.log.Info("skip reply: repeats a recent line", "text", text)
+			}
 			continue
 		}
+		if !job.ambient {
+			a.lastAnswered = job.nick
+		}
+		spoken = withoutLeadingNick(spoken)
 		if wait := a.cfg.ReplyEvery - time.Since(a.lastReply); wait > 0 {
 			time.Sleep(wait)
 		}
@@ -784,8 +999,8 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			}
 		}
 		a.ownLines = append(a.ownLines, text)
-		if len(a.ownLines) > 5 {
-			a.ownLines = a.ownLines[len(a.ownLines)-5:]
+		if len(a.ownLines) > ownLinesKept {
+			a.ownLines = a.ownLines[len(a.ownLines)-ownLinesKept:]
 		}
 		if job.takeoff {
 			a.takeoffLines = append(a.takeoffLines, text)
@@ -798,7 +1013,7 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			continue
 		}
 		if a.speaker != nil {
-			if err := a.speaker.Say(ctx, text); err != nil {
+			if err := a.speaker.Say(ctx, spoken); err != nil {
 				a.log.Warn("voice", "err", err)
 			}
 		}
@@ -808,22 +1023,32 @@ func (a *Agent) replyWorker(ctx context.Context) {
 }
 
 func (a *Agent) mentioned(text string) bool {
-	return mentions(text, append([]string{a.cfg.BotNick}, a.cfg.Aliases...))
+	names := append([]string{a.cfg.BotNick}, a.cfg.Aliases...)
+	return mentions(text, append(names, nickAliases(a.cfg.BotNick)...))
 }
 
 // mentions matches names against the words of text. A long name also matches its declined
 // forms ("пыхтуна", "пыхтуну"); a short one ("арк") must be the whole word, so "парк" and
 // "арка" do not count.
+//
+// Nicknames are compared without separators and doubled letters, and two words in a row count
+// as one: "p_agentttt", "p agent", "пагент" and "п агент" all name the bot p_agentttt (the old
+// matcher split "p_agentttt" at the underscore and never matched the bot's own nick, 21.11).
 func mentions(text string, names []string) bool {
-	ws := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+	ws := nameWords(text)
+	cands := make([]string, 0, 2*len(ws))
+	for i, w := range ws {
+		cands = append(cands, w)
+		if i+1 < len(ws) {
+			cands = append(cands, squeeze(w+ws[i+1]))
+		}
+	}
 	for _, name := range names {
-		n := strings.ToLower(strings.TrimSpace(name))
+		n := squeeze(strings.Join(nameWords(name), ""))
 		if n == "" {
 			continue
 		}
-		for _, w := range ws {
+		for _, w := range cands {
 			if w == n || len([]rune(n)) >= 5 && strings.HasPrefix(w, n) {
 				return true
 			}
@@ -832,9 +1057,81 @@ func mentions(text string, names []string) bool {
 	return false
 }
 
+// nameWords: the lower-case words of text, doubled letters squeezed ("agentttt" -> "agent").
+func nameWords(text string) []string {
+	ws := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	for i, w := range ws {
+		ws[i] = squeeze(w)
+	}
+	return ws
+}
+
+func squeeze(s string) string {
+	var b strings.Builder
+	var prev rune
+	for i, r := range s {
+		if i > 0 && r == prev {
+			continue
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
+}
+
+// nickAliases: what players call a Latin nickname out loud or in Russian chat. p_agentttt gives
+// "pagent", "agent", "пагент", "агент".
+func nickAliases(nick string) []string {
+	parts := nameWords(nick)
+	var out []string
+	if len(parts) > 1 {
+		out = append(out, strings.Join(parts, ""))
+	}
+	for _, p := range parts {
+		if len([]rune(p)) >= 4 {
+			out = append(out, p)
+		}
+	}
+	for _, a := range slices.Clone(out) {
+		if ru := latinToCyrillic(a); ru != a {
+			out = append(out, ru)
+		}
+	}
+	return out
+}
+
+var latinSounds = map[rune]string{'a': "а", 'b': "б", 'c': "к", 'd': "д", 'e': "е", 'f': "ф", 'g': "г",
+	'h': "х", 'i': "и", 'j': "дж", 'k': "к", 'l': "л", 'm': "м", 'n': "н", 'o': "о", 'p': "п", 'q': "к",
+	'r': "р", 's': "с", 't': "т", 'u': "у", 'v': "в", 'w': "в", 'x': "кс", 'y': "и", 'z': "з"}
+
+func latinToCyrillic(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if ru, ok := latinSounds[r]; ok {
+			b.WriteString(ru)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return squeeze(b.String())
+}
+
 // resetModState forgets everything the mod keeps only in the running client (build policy,
 // fall saves, the flight kit, the game mode), so the next roam step sets it all again.
 func (a *Agent) resetModState() {
+	if a.cfg.PublicServer {
+		a.chatPlayers, a.chatPlayersAt = nil, time.Time{}
+		a.partner, a.partnerAt = "", time.Time{}
+		a.places = &explore.Places{Visited: map[string]bool{}}
+		a.blockedChunks = nil
+		a.waitForGround = false
+		a.walkTrail, a.lastBlockedAt = nil, time.Time{}
+		a.stride, a.strideFails, a.visits, a.noWay, a.wanderUntil = nil, 0, nil, nil, time.Time{}
+		a.homeSettled = false
+		a.readSigns = map[string]bool{}
+	}
 	a.protected, a.fork, a.noFlight, a.noTidy, a.noSwim, a.swimming = false, false, false, false, false, false
 	a.fallSavesSet, a.flightKit, a.modeKnown, a.botsKnown = false, false, false, false
 	a.favoriteGiven, a.noFavorite, a.favoriteAt = false, false, time.Time{} // a restarted mod forgets it
@@ -923,7 +1220,9 @@ func (a *Agent) handleViewer(ctx context.Context, m twitch.Message) {
 	start := time.Now()
 	d, _ := applyRules(Decision{Action: ActWait}, m.Text)
 	note := noteViewer
-	if viewerActions[d.Action] {
+	if a.cfg.PublicServer && viewerActions[d.Action] {
+		note = notePublicGround
+	} else if viewerActions[d.Action] {
 		a.lastRequest = time.Now()
 		a.activity = nil
 		a.act(ctx, d.Action, m.Nick)

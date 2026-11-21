@@ -583,13 +583,18 @@ func spokenNames(names []string) []string {
 
 // sayNow says a fixed line at once, to the chat and aloud (a countdown cannot wait for the model).
 func (a *Agent) sayNow(ctx context.Context, text string) {
+	spoken := text
+	text = chatReply(text)
+	if text == "" {
+		return
+	}
 	a.lastSpoke.Store(time.Now().UnixNano())
 	if _, err := a.mc.Call(ctx, "ChatMessage", map[string]any{"msg": text}); err != nil {
 		a.log.Warn("say", "err", err)
 		return
 	}
 	if a.speaker != nil {
-		if err := a.speaker.Say(ctx, text); err != nil {
+		if err := a.speaker.Say(ctx, spoken); err != nil {
 			a.log.Warn("voice", "err", err)
 		}
 	}

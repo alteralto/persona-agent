@@ -189,6 +189,27 @@ func TestMentions(t *testing.T) {
 	}
 }
 
+// SkyBars, 21.11: players call the bot by its nick in many ways; none of them used to count.
+func TestMentionsTheBotsNick(t *testing.T) {
+	names := append([]string{"p_agentttt", "пыхтун"}, nickAliases("p_agentttt")...)
+	for text, want := range map[string]bool{
+		"p_agentttt привет":       true,
+		"эй p_agent иди сюда":     true,
+		"pagent ты бот?":          true,
+		"п агент, как дела":       true,
+		"Пагент, стой":            true,
+		"агент, ты где":           true,
+		"агенты в фильмах крутые": true, // a declined form: the price of "агент"
+		"реагент для зелья":       false,
+		"па где ты":               false,
+		"Пыхтуна видели":          true,
+	} {
+		if got := mentions(text, names); got != want {
+			t.Errorf("mentions(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
 func TestFlyToRule(t *testing.T) {
 	for text, target := range map[string]string{
 		"Пыхтун, прилетай ко мне": "",
