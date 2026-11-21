@@ -72,6 +72,7 @@ struct Flight {
 /// Settings kept between runs in data/pult.ini.
 #[derive(Clone)]
 struct Settings {
+    public_server: bool,
     test_mode: bool, // flight testing: long legs out from home and back
     home_x: String,
     home_z: String,
@@ -94,6 +95,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            public_server: false,
             test_mode: false,
             home_x: "-471".into(),
             home_z: "-183".into(),
@@ -304,34 +306,40 @@ impl eframe::App for Pult {
             ui.add_space(8.0);
             ui.separator();
             ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Режим:", "Mode:"));
-                ui.radio_value(&mut self.settings.test_mode, false, tr("обычный", "normal"));
-                ui.radio_value(&mut self.settings.test_mode, true, tr("испытания полёта", "flight testing"));
-                ui.add_space(12.0);
-                ui.label(tr("Дом x", "Home x"));
-                ui.add(egui::TextEdit::singleline(&mut self.settings.home_x).desired_width(56.0));
-                ui.label("z");
-                ui.add(egui::TextEdit::singleline(&mut self.settings.home_z).desired_width(56.0));
-                ui.add_space(12.0);
-                let styles = [
-                    ("", tr("смешанные", "mixed")),
-                    ("normal", tr("обычные", "normal")),
-                    ("low", tr("бреющий", "low")),
-                    ("tricks", tr("пилотаж", "aerobatics")),
-                    ("route", tr("облёт", "route")),
-                ];
-                let shown = styles.iter().find(|(k, _)| *k == self.settings.flight_style).map(|(_, v)| *v).unwrap_or(styles[0].1);
-                ui.label(tr("Полёты:", "Flights:"));
-                egui::ComboBox::from_id_salt("style").selected_text(shown).show_ui(ui, |ui| {
-                    for (k, v) in styles {
-                        ui.selectable_value(&mut self.settings.flight_style, k.to_string(), v);
-                    }
-                });
-                ui.checkbox(&mut self.settings.solver, tr("Физика", "Physics")).on_hover_text(tr(
-                    "Решатель на физике игры ведёт длинные перелёты, кольца и погоню; выключено — всё летит обычный пилот. Применится при запуске агента.",
-                    "A solver on the game's physics steers long legs, rings and pursuit; off, the plain pilot flies all of it. Applies when the agent starts.",
+                ui.checkbox(&mut self.settings.public_server, tr("Публичный сервер", "Public server")).on_hover_text(tr(
+                    "Пешком, с домом от точки входа. Применится при запуске агента.",
+                    "Walk on foot and use the entry point as home. Applies on agent start.",
                 ));
-                ui.add_space(12.0);
+                ui.add_enabled_ui(!self.settings.public_server, |ui| {
+                    ui.label(tr("Режим:", "Mode:"));
+                    ui.radio_value(&mut self.settings.test_mode, false, tr("обычный", "normal"));
+                    ui.radio_value(&mut self.settings.test_mode, true, tr("испытания полёта", "flight testing"));
+                    ui.add_space(12.0);
+                    ui.label(tr("Дом x", "Home x"));
+                    ui.add(egui::TextEdit::singleline(&mut self.settings.home_x).desired_width(56.0));
+                    ui.label("z");
+                    ui.add(egui::TextEdit::singleline(&mut self.settings.home_z).desired_width(56.0));
+                    ui.add_space(12.0);
+                    let styles = [
+                        ("", tr("смешанные", "mixed")),
+                        ("normal", tr("обычные", "normal")),
+                        ("low", tr("бреющий", "low")),
+                        ("tricks", tr("пилотаж", "aerobatics")),
+                        ("route", tr("облёт", "route")),
+                    ];
+                    let shown = styles.iter().find(|(k, _)| *k == self.settings.flight_style).map(|(_, v)| *v).unwrap_or(styles[0].1);
+                    ui.label(tr("Полёты:", "Flights:"));
+                    egui::ComboBox::from_id_salt("style").selected_text(shown).show_ui(ui, |ui| {
+                        for (k, v) in styles {
+                            ui.selectable_value(&mut self.settings.flight_style, k.to_string(), v);
+                        }
+                    });
+                    ui.checkbox(&mut self.settings.solver, tr("Физика", "Physics")).on_hover_text(tr(
+                        "Решатель на физике игры ведёт длинные перелёты, кольца и погоню; выключено — всё летит обычный пилот. Применится при запуске агента.",
+                        "A solver on the game's physics steers long legs, rings and pursuit; off, the plain pilot flies all of it. Applies when the agent starts.",
+                    ));
+                    ui.add_space(12.0);
+                });
                 ui.label("Twitch").on_hover_text(tr(
                     "Имя канала стрима: агент читает его чат и отвечает зрителям. Пусто — выключено. Применится при запуске агента.",
                     "The stream's channel: the agent reads its chat and answers viewers. Empty: off. Applies when the agent starts.",
@@ -594,7 +602,7 @@ fn start_agent(root: &Path, s: &Settings) -> String {
     if let (Ok(x), Ok(z)) = (s.home_x.trim().parse::<i32>(), s.home_z.trim().parse::<i32>()) {
         cmd.env("HOME_XZ", format!("{x},{z}"));
     }
-    if s.test_mode {
+    if s.test_mode && !s.public_server {
         cmd.env("FLIGHT_SHARE", "0.8").env("ACTIVITY_EVERY", "30s");
     }
     if !s.flight_style.is_empty() {
@@ -603,6 +611,7 @@ fn start_agent(root: &Path, s: &Settings) -> String {
     if !s.twitch.trim().is_empty() {
         cmd.env("TWITCH_CHANNEL", s.twitch.trim());
     }
+    cmd.env("PUBLIC_SERVER", if s.public_server { "1" } else { "0" });
     cmd.env("FLY_SOLVER", if s.solver { "1" } else { "0" });
     if let Err(e) = cmd.spawn() {
         return format!("{}: {e}", tr("агент не запустился", "the agent did not start"));
@@ -610,6 +619,9 @@ fn start_agent(root: &Path, s: &Settings) -> String {
     for _ in 0..20 {
         thread::sleep(Duration::from_millis(500));
         if agent_running() {
+            if s.public_server {
+                return tr("агент работает (публичный сервер, пешком)", "the agent is running (public server, on foot)").into();
+            }
             let mode = if s.test_mode { tr("испытания полёта", "flight testing") } else { tr("обычный режим", "normal mode") };
             let physics = if s.solver { tr("на физике", "on physics") } else { tr("обычный пилот", "plain pilot") };
             return format!("{} ({mode}, {physics})", tr("агент работает", "the agent is running"));
@@ -887,6 +899,7 @@ fn load_settings(root: &Path) -> Settings {
     let Ok(text) = fs::read_to_string(settings_path(root)) else { return s };
     for line in text.lines() {
         match line.split_once('=') {
+            Some(("public_server", v)) => s.public_server = v == "1",
             Some(("test_mode", v)) => s.test_mode = v == "1",
             Some(("home_x", v)) => s.home_x = v.to_string(),
             Some(("home_z", v)) => s.home_z = v.to_string(),
@@ -912,9 +925,10 @@ fn load_settings(root: &Path) -> Settings {
 fn save_settings(root: &Path, s: &Settings) {
     let b = |v: bool| if v { "1" } else { "0" };
     let text = format!(
-        "test_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\ntwitch={}\nsolver={}\nlang={}\n\
+        "public_server={}\ntest_mode={}\nhome_x={}\nhome_z={}\nlaya_cpu={}\nflight_style={}\ntwitch={}\nsolver={}\nlang={}\n\
          record_tests={}\nmc_launcher={}\nlaya_serve={}\nlaya_hf_home={}\nwhisper_hf_home={}\n\
          unionclef_dir={}\ntest_python={}\ntest_env={}\n",
+        b(s.public_server),
         b(s.test_mode),
         s.home_x.trim(),
         s.home_z.trim(),

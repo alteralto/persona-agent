@@ -48,5 +48,8 @@ The mod side also stopped restarting the gateway on a settings reload unless the
 
 ## What still uses Py4J
 
-Nothing in the agent. Our local test bench uses it to take game-only frames for test videos
-(`getScreenshot`), and the agent itself talks to the mod over MCP (HTTP on 25350).
+The public-server agent uses the local Py4J camera API to level a steep downward view on dry
+ground. The adapter checks the account name and manual controls before rotating. It can also
+dismiss the SkyBars inventory titled «Главное меню» during an autonomous walk after 30 seconds
+without manual controls. The test bench
+also uses Py4J for game-only video frames (`getScreenshot`). Navigation uses MCP and voice uses UDP.

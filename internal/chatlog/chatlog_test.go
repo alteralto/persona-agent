@@ -11,10 +11,16 @@ func TestParse(t *testing.T) {
 		want Message
 		ok   bool
 	}{
-		{"<Steve> привет, пыхтун", Message{"Steve", "привет, пыхтун"}, true},
-		{"§7[Игрок] §falteralto§7: иди за мной", Message{"alteralto", "иди за мной"}, true},
-		{"[VIP] [Clan] Mage_01 » нужны ракеты", Message{"Mage_01", "нужны ракеты"}, true},
-		{"Steve -> hi", Message{"Steve", "hi"}, true},
+		{"<Steve> привет, пыхтун", Message{"Steve", "привет, пыхтун", true}, true},
+		{"§7[Игрок] §falteralto§7: иди за мной", Message{"alteralto", "иди за мной", false}, true},
+		{"[VIP] [Clan] Mage_01 » нужны ракеты", Message{"Mage_01", "нужны ракеты", false}, true},
+		{
+			"§7ʟ |   | Игрок [I II III] Alex_22 ✪ » Пыхтун, иди за мной",
+			Message{"Alex_22", "Пыхтун, иди за мной", true}, true,
+		},
+		{"ɢ | Clan ❤ | ☾Ранг☽ [I II III] Steve  » привет » Пыхтун", Message{"Steve", "привет » Пыхтун", false}, true},
+		{"ɢ | Clan | объявление » Игра начинается", Message{}, false},
+		{"Steve -> hi", Message{"Steve", "hi", false}, true},
 		{"Steve joined the game", Message{}, false},
 		{"<Steve>   ", Message{}, false},
 		{"", Message{}, false},

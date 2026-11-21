@@ -35,9 +35,10 @@ func Listen(ctx context.Context, addr string, out chan<- Heard, status func() an
 		}
 		select {
 		case out <- h:
-		default: // agent busy; a dropped phrase is better than a stalled game thread
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "voice queue full", http.StatusServiceUnavailable)
 		}
-		w.WriteHeader(http.StatusNoContent)
 	})
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 2 * time.Second}
 	go func() {

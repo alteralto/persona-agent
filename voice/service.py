@@ -22,6 +22,7 @@ import re
 import socket
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -132,10 +133,22 @@ def transcriber(phrases, model: WhisperModel, agent_url: str, hotwords: str):
         log.info("heard %s: %s (%.1fs audio, stt %d ms)", nick, text, len(audio) / STT_RATE, ms)
         body = json.dumps({"nick": nick, "text": text, "stt_ms": ms}).encode()
         req = urllib.request.Request(agent_url, body, {"Content-Type": "application/json"})
-        try:
-            urllib.request.urlopen(req, timeout=2).read()
-        except OSError as err:
-            log.warning("agent unreachable: %s", err)
+        while True:
+            try:
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    response.read()
+                break
+            except urllib.error.HTTPError as err:
+                err.close()
+                if err.code == 503:
+                    # The agent explicitly declined this phrase. Keep its speaker and queue order.
+                    time.sleep(0.25)
+                    continue
+                log.warning("agent rejected voice: HTTP %d", err.code)
+                break
+            except OSError as err:
+                log.warning("agent unreachable: %s", err)
+                break
 
 
 def find_output(name: str) -> int:

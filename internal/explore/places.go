@@ -32,6 +32,9 @@ type Places struct {
 
 func LoadPlaces(path string) (*Places, error) {
 	p := &Places{path: path, Visited: map[string]bool{}}
+	if path == "" {
+		return p, nil
+	}
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return p, nil
@@ -49,6 +52,9 @@ func LoadPlaces(path string) (*Places, error) {
 }
 
 func (p *Places) Save() error {
+	if p.path == "" { // in-memory map for a public world session
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(p.path), 0o755); err != nil {
 		return err
 	}

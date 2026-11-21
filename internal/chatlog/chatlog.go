@@ -7,8 +7,9 @@ import (
 )
 
 type Message struct {
-	Nick string
-	Text string
+	Nick       string
+	Text       string
+	NearbyChat bool // local or vanilla chat; callers still need the sender's actual proximity
 }
 
 var (
@@ -16,7 +17,9 @@ var (
 	// <Nick> text  (vanilla)
 	vanilla = regexp.MustCompile(`^<([A-Za-z0-9_]{2,16})>\s*(.+)$`)
 	// [Rank] [Clan] Nick: text  /  Nick » text  /  Nick -> text
-	plugin = regexp.MustCompile(`^(?:\[[^\]]*\]\s*)*([A-Za-z0-9_]{2,16})\s*(?::|»|->|>)\s*(.+)$`)
+	// Local/global channels: clan, rank and level precede the player's name.
+	channel = regexp.MustCompile(`^[ʟɢ]\s*\|[^|]*\|[^»]*\]\s+([A-Za-z0-9_]{2,16})\s*[✪✖✔]?\s*»\s*(.+)$`)
+	plugin  = regexp.MustCompile(`^(?:\[[^\]]*\]\s*)*([A-Za-z0-9_]{2,16})\s*(?::|»|->|>)\s*(.+)$`)
 )
 
 // Parse extracts nick and text from one chat line; ok=false for system lines.
@@ -27,13 +30,13 @@ func Parse(line string) (Message, bool) {
 			return Message{}, false // the mods' own status lines ("MovementQueue: off path ...")
 		}
 	}
-	for _, re := range []*regexp.Regexp{vanilla, plugin} {
+	for _, re := range []*regexp.Regexp{vanilla, plugin, channel} {
 		if m := re.FindStringSubmatch(line); m != nil {
 			text := strings.TrimSpace(m[2])
 			if text == "" || logLevels[strings.ToUpper(m[1])] {
 				return Message{}, false // "WARNING: Failed! No block path" is the mod, not a player
 			}
-			return Message{Nick: m[1], Text: text}, true
+			return Message{Nick: m[1], Text: text, NearbyChat: re == vanilla || (re == channel && strings.HasPrefix(line, "ʟ"))}, true
 		}
 	}
 	return Message{}, false

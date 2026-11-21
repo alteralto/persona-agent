@@ -132,9 +132,13 @@ func (w *World) LandPlayer(name string) {
 
 // Say puts a player's chat line into the log the agent reads.
 func (w *World) Say(nick, text string) {
+	w.ChatLine("<" + nick + "> " + text)
+}
+
+// ChatLine delivers the server's original channel prefix and formatting to the agent.
+func (w *World) ChatLine(line string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	line := "<" + nick + "> " + text
 	w.chat = append(w.chat, line)
 	w.logLocked("chat", line)
 }
