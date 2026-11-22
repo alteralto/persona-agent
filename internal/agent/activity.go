@@ -478,7 +478,8 @@ func (a *Agent) mingle(ctx context.Context) bool {
 		// They just said something (to someone else): pick that up, like a neighbour who overheard.
 		// On SkyBars (21.11) a player next to him could not lie down on a bed and he offered "a pot
 		// for fish soup" from the stock topics.
-		if l, ok := a.lastSaidBy[strings.ToLower(near.name)]; ok && time.Since(l.at) < overheardFresh && len(words(l.text)) >= 2 {
+		if l, ok := a.lastSaidBy[strings.ToLower(near.name)]; ok && time.Since(l.at) < overheardFresh && len(words(l.text)) >= 2 &&
+			!a.muted(near.name, time.Now()) && !rude(l.text) { // a muted troll's line is no topic
 			a.log.Info("mingle: picks up what they said", "player", near.name, "text", l.text)
 			a.lastSpoke.Store(time.Now().UnixNano())
 			a.enqueue(replyJob{

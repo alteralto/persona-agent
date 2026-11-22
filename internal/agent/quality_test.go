@@ -94,7 +94,14 @@ func TestModelRefusal(t *testing.T) {
 	for in, want := range map[string]bool{
 		"как и любая языковая модель, GigaChat не обладает собственным мнением": true,
 		"Я не могу обсуждать эту тему":                                          true,
-		"го, только без криперов":                                               false,
+		// Said aloud on SkyBars (21.11): the plural forms slipped past the filter 11 times.
+		"генеративные языковые модели не обладают собственным мнением — их": true,
+		"к сожалению, иногда генеративные языковые модели могут создавать":  true,
+		"Нейросети тоже ошибаются, друг":                                    true,
+		"го, только без криперов":                                           false,
+		"модель ракеты собрал, держи!":                                      false,
+		"у меня своё мнение: фейерверки лучше":                              false,
+		"Для языкового пакета модели мобов менять не нужно":                 false,
 	} {
 		if got := modelRefusal(in); got != want {
 			t.Errorf("modelRefusal(%q) = %v", in, got)
@@ -111,5 +118,36 @@ func TestWithoutBookWords(t *testing.T) {
 		if got := withoutBookWords(in); got != want {
 			t.Errorf("withoutBookWords(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRepeatsFor(t *testing.T) {
+	a := &Agent{ownLines: []string{"Не бот я, хоббит старый. Просто тут, фейерверки проверяю."}, lastAnswered: "dashfrile"}
+	same := "не бот я, хоббит старый. Просто тут, фейерверки проверяю"
+	if !a.repeatsFor(replyJob{nick: "DOMINIKOS"}, same) {
+		t.Error("near-verbatim line to another player is no repeat")
+	}
+	if a.repeatsFor(replyJob{nick: "DOMINIKOS"}, "Хоббит я, а фейерверки — моё ремесло, дружище") {
+		t.Error("a different line on the same topic to another player counts as a repeat")
+	}
+	if !a.repeatsFor(replyJob{nick: "dashfrile"}, "Хоббит старый, говорю же, фейерверки проверяю") {
+		t.Error("a close repeat to the same player passes")
+	}
+	b := &Agent{ownLines: []string{"Иди через мост к мельнице"}, lastAnswered: "Alex"}
+	if b.repeatsFor(replyJob{nick: "Lena"}, "Не иди через мост к мельнице") {
+		t.Error("the opposite answer counts as a repeat")
+	}
+}
+
+func TestCutsMidSentence(t *testing.T) {
+	long := "Дружище, выбери звук для дверного звонка: кот мяукает, дождь стучит по крыше или далёкий раскат грома над холмами"
+	if !cutsMidSentence(long, publicMaxRunes) {
+		t.Error("a 110-rune single sentence fits")
+	}
+	if cutsMidSentence("Ракеты сохнут. А ещё я видел у моста странную лавку, где чинят только левые ботинки, представь себе", publicMaxRunes) {
+		t.Error("a line with a sentence end inside the cap needs no rewrite")
+	}
+	if cutsMidSentence("Брови в порядке, ракетами не балуюсь.", publicMaxRunes) {
+		t.Error("a short line")
 	}
 }

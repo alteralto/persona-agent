@@ -120,6 +120,39 @@ func (a *Agent) walkTarget() (int, int, bool) {
 	return 0, 0, false
 }
 
+// Flying out of the same spot again and again. On SkyBars (21.11, 22:24-22:30) the bot stood under
+// a stall roof: the elytra could not take off, creative flight was "blocked", and every new visit
+// walked it back there - 48 fly-outs in six minutes, the bot silent all along. Three tries from
+// about the same spot and it walks out instead (a detour, its own trail back, a hop aside).
+const (
+	flyOutTries  = 3
+	flyOutWindow = 3 * time.Minute
+	flyOutSpot   = 6.0 // blocks
+)
+
+type flyOutTry struct {
+	at  time.Time
+	pos explore.Pos
+}
+
+func (a *Agent) flyOutFailingHere(pos explore.Pos) bool {
+	recent, here := a.flyOuts[:0], 0
+	for _, f := range a.flyOuts {
+		if time.Since(f.at) < flyOutWindow {
+			recent = append(recent, f)
+			if math.Hypot(f.pos.X-pos.X, f.pos.Z-pos.Z) < flyOutSpot && math.Abs(f.pos.Y-pos.Y) < 3 { // not a floor above
+				here++
+			}
+		}
+	}
+	a.flyOuts = recent
+	if here >= flyOutTries {
+		a.log.Info("stuck: flying out keeps failing here, walking instead", "x", explore.Block(pos.X), "z", explore.Block(pos.Z), "tries", here)
+		return true
+	}
+	return false
+}
+
 // checkStuck notices a walk that makes no progress: busy, yet the bot has not moved.
 // It stops the walk and hops a few blocks aside, out of the corner or pit.
 func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool {
@@ -158,11 +191,12 @@ func (a *Agent) checkStuck(ctx context.Context, pos explore.Pos, busy bool) bool
 	// In creative, walls and fences we may not break are simply flown over; and a pit or corner
 	// the bot could not walk out of once is flown out of the second time.
 	far := haveTarget && math.Hypot(float64(tx)-pos.X, float64(tz)-pos.Z) > a.flyAbove()
-	if a.creative && (far || a.stuckCount >= 2) {
+	if a.creative && (far || a.stuckCount >= 2) && !a.flyOutFailingHere(pos) {
 		fx, fz := flyOutTarget(pos, tx, tz, haveTarget)
 		// On the elytra, else (no rockets, no elytra) in creative flight straight away; an elytra
 		// that cannot go up from here hands over to creative flight too (checkFlight).
 		how := ""
+		a.flyOuts = append(a.flyOuts, flyOutTry{at: time.Now(), pos: pos}) // a try that fails at once counts too
 		switch {
 		case a.startFlight(ctx, fx, fz):
 			how, a.flyOut = "flying out", true

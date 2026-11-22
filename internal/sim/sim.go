@@ -70,6 +70,7 @@ type World struct {
 	lakes     [][4]float64 // x0, z0, x1, z1
 	platforms [][4]int     // x, z, r, top block y: a raised floor over the ground
 	pits      [][3]float64 // x, z, r: a hole no walk gets out of and no elytra takes off from
+	roofs     [][3]float64 // x, z, r: a low ceiling creative flight cannot get up through either
 	swimming  bool
 	swimTo    [2]float64
 	free      int
@@ -177,6 +178,14 @@ func (w *World) AddPit(x, z, r float64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.pits = append(w.pits, [3]float64{x, z, r})
+}
+
+// AddRoof puts a low ceiling over x, z: creative flight from under it fails ("blocked"), as under
+// the stalls of the SkyBars spawn (21.11).
+func (w *World) AddRoof(x, z, r float64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.roofs = append(w.roofs, [3]float64{x, z, r})
 }
 
 func (w *World) inPitLocked(x, z float64) bool {
@@ -631,6 +640,12 @@ func (w *World) callLocked(tool string, args map[string]any) (any, bool) {
 		}
 		w.goal, w.follow = nil, ""
 		w.hoverTarget = [2]float64{float64(intArg(args, "x", 0)) + 0.5, float64(intArg(args, "z", 0)) + 0.5}
+		for _, rf := range w.roofs {
+			if math.Hypot(w.x-rf[0], w.z-rf[1]) <= rf[2] {
+				w.hoverPhase = "failed"
+				return map[string]any{"phase": "failed", "reason": "blocked"}, false
+			}
+		}
 		w.hoverPhase = "flying"
 		return map[string]any{"phase": "flying"}, false
 	case "hoverStatus":

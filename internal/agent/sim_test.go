@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,6 +58,12 @@ type run struct {
 
 func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
 	t.Helper()
+	return startSimWith(t, opt, tweak, nil)
+}
+
+// startSimWith also takes a speaker: the voice service the bot sends its lines to.
+func startSimWith(t *testing.T, opt sim.Options, tweak func(*agent.Config), speaker *voice.Speaker) *run {
+	t.Helper()
 	opt.BotNick = "Pyhtun"
 	w := sim.New(opt)
 	g := &sim.Giga{}
@@ -82,7 +90,7 @@ func startSim(t *testing.T, opt sim.Options, tweak func(*agent.Config)) *run {
 	llm := giga.New("sim", "GIGACHAT_API_PERS", "GigaChat-2", true).
 		WithEndpoints(gs.URL+"/oauth", gs.URL+"/chat/completions")
 	a := agent.New(cfg, mcp.New(game.URL, "sim"), laya.New(ls.URL), llm, log)
-	heard := a.WithVoice(nil)
+	heard := a.WithVoice(speaker)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -127,6 +135,17 @@ func (r *run) ready() {
 	r.waitFor("build policy", 3*time.Second, func() bool {
 		return r.w.Has("tool", "setBuildPolicy") ||
 			r.w.Has("tool", "markProtectedArea")
+	})
+}
+
+// distinctReplies makes the fake model answer every call with a different line, as the real one
+// does, so the repeat filter only catches real repeats.
+func (r *run) distinctReplies() {
+	var n atomic.Int32
+	words := []string{"фейерверк", "нора", "чай", "ракета", "брови", "элитры", "табличка", "холм", "мост", "лавка"}
+	r.giga.SetReply(func(string) string {
+		i := int(n.Add(1))
+		return fmt.Sprintf("%s %s %d", words[i%len(words)], words[(i*3+1)%len(words)], i)
 	})
 }
 
@@ -678,7 +697,12 @@ func TestSimOverlappingVoiceKeepsEverySpeaker(t *testing.T) {
 	r.waitFor("a reply for every speaker", 5*time.Second, func() bool {
 		return r.w.Count("say", "") >= len(names)
 	})
-	calls := r.giga.Calls()
+	var calls []string // answers only: a reworded repeat is a second call for the same speaker
+	for _, c := range r.giga.Calls() {
+		if !strings.Contains(c, "Ты только что уже сказал") {
+			calls = append(calls, c)
+		}
+	}
 	for i, nick := range names {
 		if i >= len(calls) || !strings.Contains(calls[i], "Игрок "+nick+": Пыхтун, привет") || !strings.Contains(calls[i], "Lena: На мосту стоит вагонетка") {
 			t.Fatalf("missing speaker, conversation context or reply order at %s", nick)
@@ -760,6 +784,7 @@ func TestSimPublicTalksToNearbyPlayersWithoutName(t *testing.T) {
 	for _, source := range []string{"local", "voice", "vanilla", "request"} {
 		t.Run(source, func(t *testing.T) {
 			r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+			r.distinctReplies()
 			r.w.AddPlayer("Alex", 3, 4)
 			r.w.AddPlayer("AlexFar", 40, 0)
 			r.w.AddPlayer("Mira", 2, 2)
@@ -787,13 +812,182 @@ func TestSimPublicTalksToNearbyPlayersWithoutName(t *testing.T) {
 			if !strings.Contains(r.giga.Calls()[0], "Игрок Alex:") {
 				t.Fatal("lost the speaker")
 			}
+			// During the pause after an unnamed answer: a passing remark from someone else waits,
+			// the partner's next question is answered (as talk, never as a command), and so is an
+			// explicit mention.
 			r.w.Say("Mira", "Привет!")
 			r.w.Say("Alex", "Пойдёшь за мной?")
 			r.w.ChatLine("ɢ | Clan | Игрок [I] AlexFar » Пыхтун, привет")
-			r.waitFor("explicit public mention during cooldown", 2*time.Second, func() bool { return r.w.Count("say", "") >= 2 })
-			if len(r.giga.Calls()) != 2 || !strings.Contains(r.giga.Calls()[1], "Игрок AlexFar:") || r.w.Has("cmd", "@follow") {
-				t.Fatal("nearby conversation leaked into commands or bypassed cooldown")
+			r.waitFor("partner's question and explicit mention during cooldown", 2*time.Second, func() bool { return r.w.Count("say", "") >= 3 })
+			time.Sleep(100 * time.Millisecond)
+			calls := strings.Join(r.giga.Calls(), "\n")
+			if len(r.giga.Calls()) != 3 || !strings.Contains(calls, "Игрок Alex: Пойдёшь за мной?") ||
+				!strings.Contains(calls, "Игрок AlexFar:") || strings.Contains(calls, "Игрок Mira:") || r.w.Has("cmd", "@follow") {
+				t.Fatal("nearby conversation leaked into commands, answered a passing remark or dropped the partner")
 			}
 		})
+	}
+}
+
+// SkyBars 21.11, 20:19: "Как у тебя дела?" got an answer, "Ммм, как тебя зовут?" 8 s later got
+// nothing — the pause after an unnamed answer dropped it before anyone looked at it.
+func TestSimPublicQuestionRightAfterAnAnswer(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	r.distinctReplies()
+	r.w.AddPlayer("xooox", 3, 2)
+	r.w.AddPlayer("Lena", 4, -3)
+	r.w.AddPlayer("Mira", -4, 3)
+	r.w.AddPlayer("Rob", -3, -4)
+	r.ready()
+	r.heard <- voice.Heard{Nick: "xooox", Text: "Как у тебя дела?"}
+	r.waitFor("first answer", 2*time.Second, func() bool { return r.w.Count("say", "") == 1 })
+	r.heard <- voice.Heard{Nick: "xooox", Text: "Ммм, как тебя зовут"}
+	r.waitFor("answer to the name question", 2*time.Second, func() bool { return r.w.Count("say", "") == 2 })
+	// In the same pause: a question that may be for a friend waits; one put to "ты" is answered,
+	// filler first and no question mark too; then the asker is the partner and is answered.
+	r.heard <- voice.Heard{Nick: "Rob", Text: "Как попасть на ферму?"}
+	time.Sleep(200 * time.Millisecond)
+	if n := r.w.Count("say", ""); n != 2 {
+		t.Fatalf("answered a question that was not put to him (%d lines)", n)
+	}
+	r.heard <- voice.Heard{Nick: "Lena", Text: "Ммм, а ты знаешь, где тут ферма"}
+	r.waitFor("answer to another player's question", 2*time.Second, func() bool { return r.w.Count("say", "") == 3 })
+	r.heard <- voice.Heard{Nick: "Lena", Text: "Ладно, пойду"}
+	r.waitFor("answer to the partner's next line", 2*time.Second, func() bool { return r.w.Count("say", "") == 4 })
+	r.heard <- voice.Heard{Nick: "Mira", Text: "Ну вот и всё"}
+	time.Sleep(200 * time.Millisecond)
+	if n := r.w.Count("say", ""); n != 4 {
+		t.Fatalf("answered a passing remark (%d lines)", n)
+	}
+}
+
+// SkyBars 21.11, 20:21-20:33: a troll next to the bot said "ты жопа" some fifty times and got 59
+// answers. Now: one answer in character, then nothing, not even when the troll names the bot; a
+// polite player next to them is still answered.
+func TestSimPublicTrollGetsOneAnswer(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	r.distinctReplies()
+	r.w.AddPlayer("xooox", 3, 2)
+	r.w.AddPlayer("Lena", -3, 3)
+	r.ready()
+	for _, line := range []string{"Ты жопа", "ти жопа", "Ты жопа", "те жопа", "Тихо, пыхтун", "Ты жопа"} {
+		r.heard <- voice.Heard{Nick: "xooox", Text: line}
+		time.Sleep(60 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := r.w.Count("say", ""); n != 1 {
+		t.Fatalf("answered the troll %d times", n)
+	}
+	r.heard <- voice.Heard{Nick: "Lena", Text: "Пыхтун, а ты фейерверки любишь?"}
+	r.waitFor("answer to the polite player", 2*time.Second, func() bool { return r.w.Count("say", "") == 2 })
+	if !strings.Contains(r.log.String(), "skip: rude player muted") {
+		t.Error("no log line for the muted troll")
+	}
+}
+
+// SkyBars 21.11, 20:37: five players asked "ты бот?" within a minute and all got "Не бот я,
+// хоббит старый. Просто тут, фейерверки проверяю". Now the second one on gets the line reworded;
+// nobody is left without an answer.
+func TestSimPublicSameQuestionFromManyPlayers(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	var n atomic.Int32
+	r.giga.SetReply(func(prompt string) string {
+		if strings.Contains(prompt, "Ты только что уже сказал") {
+			others := []string{"Ракеты сохнут, некогда спорить", "Спроси лучше про салют над холмом",
+				"Хоббиты не жужжат, зато громко бабахают", "Брови целы, значит день удался", "Чай остыл, пойду за новым"}
+			return others[int(n.Add(1))%len(others)]
+		}
+		return "Не бот я, хоббит старый. Просто тут, фейерверки проверяю."
+	})
+	names := []string{"dashfrile", "DOMINIKOS", "guiskill", "Mira", "Rob"}
+	for i, nick := range names {
+		r.w.AddPlayer(nick, float64(i+2), 3)
+	}
+	r.ready()
+	for _, nick := range names {
+		r.heard <- voice.Heard{Nick: nick, Text: "Пыхтун, ты бот?"}
+		time.Sleep(80 * time.Millisecond)
+	}
+	r.waitFor("an answer for every player", 4*time.Second, func() bool { return r.w.Count("say", "") >= len(names) })
+	if c := r.w.Count("say", "хоббит старый"); c != 1 {
+		t.Fatalf("said the same line %d times", c)
+	}
+}
+
+// SkyBars 21.11: "Дружище, выбери звуку дверного звонка: кот мяукает или дождь…" - a single long
+// sentence broke off mid-word. Now the model is asked once for a shorter line.
+func TestSimPublicLongLineIsShortenedNotCut(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	r.giga.SetReply(func(prompt string) string {
+		if strings.Contains(prompt, "Скажи то же самое короче") {
+			return "Выбирай звонок: кот или дождь?"
+		}
+		return "Дружище, выбери звук для дверного звонка: кот мяукает, дождь стучит по крыше или далёкий раскат грома над холмами"
+	})
+	r.w.AddPlayer("Sigma", 3, 3)
+	r.ready()
+	r.heard <- voice.Heard{Nick: "Sigma", Text: "Пыхтун, что нового?"}
+	r.waitFor("an answer", 3*time.Second, func() bool { return r.w.Count("say", "") == 1 })
+	if !r.w.Has("say", "звонок: кот или дождь?") || r.w.Has("say", "…") {
+		t.Fatalf("said %v", r.w.Events()[len(r.w.Events())-1].Text)
+	}
+}
+
+// SkyBars 21.11: the bot's own line came back through a player's open microphone, garbled by
+// speech recognition, and once he answered it as the player's. Now it is told apart; the same
+// player's own question right after is still answered.
+func TestSimPublicIgnoresOwnVoiceEcho(t *testing.T) {
+	var spoken []string
+	var mu sync.Mutex
+	vs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Text string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		spoken = append(spoken, body.Text)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer vs.Close()
+	r := startSimWith(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true }, voice.NewSpeaker(vs.URL+"/say"))
+	var n atomic.Int32
+	lines := []string{"Смотрите все, фейерверк мой новый, красоты невиданной!", "Ферма за мостом, у старой мельницы, иди по тропинке",
+		"Чай остыл, а ракеты сохнут на крыльце"}
+	r.giga.SetReply(func(string) string { return lines[int(n.Add(1)-1)%len(lines)] })
+	r.w.AddPlayer("Yurgim", 3, 3)
+	r.ready()
+	r.heard <- voice.Heard{Nick: "Yurgim", Text: "Пыхтун, что делаешь?"}
+	r.waitFor("first answer", 3*time.Second, func() bool { return r.w.Count("say", "") == 1 })
+	mu.Lock()
+	said := spoken[len(spoken)-1]
+	mu.Unlock()
+	// His line comes back through Yurgim's microphone with one word lost.
+	r.heard <- voice.Heard{Nick: "Yurgim", Text: strings.Join(strings.Fields(said)[1:], " ") + " ага"}
+	time.Sleep(300 * time.Millisecond)
+	if !strings.Contains(r.log.String(), "skip: own voice echo") {
+		t.Fatal("took his own echo for the player's words")
+	}
+	r.heard <- voice.Heard{Nick: "Yurgim", Text: "Пыхтун, а где тут ферма?"}
+	r.waitFor("answer to the real question", 8*time.Second, func() bool { return r.w.Count("say", "") == 2 })
+}
+
+// A muted troll can still stop the bot, but not order it about through the stop exception.
+func TestSimPublicMutedTrollCanOnlyStop(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "survival", Fork: true}, func(c *agent.Config) { c.PublicServer = true })
+	r.distinctReplies()
+	r.w.AddPlayer("xooox", 3, 2)
+	r.ready()
+	for _, line := range []string{"Ты жопа", "ти жопа", "те жопа"} {
+		r.heard <- voice.Heard{Nick: "xooox", Text: line}
+		time.Sleep(60 * time.Millisecond)
+	}
+	r.heard <- voice.Heard{Nick: "xooox", Text: "Пыхтун, не стой, иди за мной"}
+	time.Sleep(200 * time.Millisecond)
+	if r.w.Has("cmd", "@follow") || r.w.Has("cmd", "@stop") {
+		t.Fatal("a muted player ordered the bot about")
+	}
+	r.heard <- voice.Heard{Nick: "xooox", Text: "Пыхтун, стой"}
+	r.waitFor("stop from a muted player", 2*time.Second, func() bool { return r.w.Has("cmd", "@stop") })
+	if n := r.w.Count("say", ""); n != 1 {
+		t.Fatalf("talked to the muted troll: %d lines", n)
 	}
 }

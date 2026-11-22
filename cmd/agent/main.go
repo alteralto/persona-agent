@@ -42,14 +42,14 @@ func main() {
 
 	cfg := agent.Config{
 		BotNick:         botNick,
-		Aliases:         splitList(env("BOT_ALIASES", "пыхтун,пыхтуна,пыхтуну")),
+		Aliases:         splitList(env("BOT_ALIASES", "пыхтун,пыхтуна,пыхтуну,агент")),
 		OtherBots:       splitList(env("OTHER_BOTS", "")),
 		Creative:        env("SERVER_MODE", "creative") == "creative",
 		MinConfidence:   envFloat("LAYA_MIN_PROB", 0.45),
 		PollEvery:       500 * time.Millisecond,
 		MaxBotReplies:   int(envFloat("MAX_BOT_REPLIES", 0)), // 0 = unlimited
 		RequireMention:  env("REQUIRE_MENTION", "true") == "true",
-		ReplyEvery:      5 * time.Second,
+		ReplyEvery:      envDuration("REPLY_EVERY", replyEveryDefault()), // floor; lines also wait for the one before to finish (pacing.go)
 		IdleEvery:       envDuration("IDLE_EVERY", 4*time.Minute),
 		Intro:           env("INTRO", "true") == "true",
 		Explore:         env("EXPLORE", "true") == "true",
@@ -215,4 +215,14 @@ func loadDotEnv(path string) {
 			os.Setenv(k, v)
 		}
 	}
+}
+
+// replyEveryDefault: on a public server players wait for answers and the voice paces the lines
+// (pacing.go), so the floor is short; on a private text server two bots at 1.5 s would chatter
+// at each other, so the old 5 s stays.
+func replyEveryDefault() time.Duration {
+	if env("PUBLIC_SERVER", "0") == "1" {
+		return 1500 * time.Millisecond
+	}
+	return 5 * time.Second
 }

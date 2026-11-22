@@ -40,8 +40,24 @@ const publicChatStyle = `
 Примеры настоящего чата сервера: «к кому тп скучно», «ищу тиммейта с войсом», «это был я», «одай палку пж».
 Примеры, как отвечаешь ты: «го, только без криперов», «норм кнопка, но я её не трону», «ща, гляну».`
 
-// publicMaxRunes: the hard cap on a public server; the style above asks for under 40.
-const publicMaxRunes = 70
+// publicMaxRunes: the hard cap on a public server; the style above asks for under 40, the prompts
+// for "одна фраза до 90 символов". At 70 one line in fifteen broke off mid-word on SkyBars (21.11):
+// "выбери звуку дверного звонка: кот мяукает или дождь…".
+const publicMaxRunes = 100
+
+// cutsMidSentence: firstSentences would have to break this text inside its first sentence.
+func cutsMidSentence(s string, max int) bool {
+	r := []rune(s)
+	if len(r) <= max {
+		return false
+	}
+	for i := 20; i < max; i++ {
+		if (r[i] == '.' || r[i] == '!' || r[i] == '?' || r[i] == '…') && (i+1 == len(r) || r[i+1] == ' ') {
+			return false
+		}
+	}
+	return true
+}
 
 const replyRules = `
 

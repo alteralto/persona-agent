@@ -45,6 +45,8 @@ type Giga struct {
 	mu      sync.Mutex
 	Prompts []string // the last user message of every chat call
 	Delay   time.Duration
+	// Reply, when set, answers instead of the canned line (tests that need distinct answers).
+	Reply func(prompt string) string
 }
 
 func (g *Giga) Handler() http.Handler {
@@ -73,13 +75,24 @@ func (g *Giga) Handler() http.Handler {
 		}
 		g.mu.Lock()
 		g.Prompts = append(g.Prompts, last)
-		delay := g.Delay
+		delay, reply := g.Delay, g.Reply
 		g.mu.Unlock()
 		time.Sleep(delay)
+		answer := cannedReply(last)
+		if reply != nil {
+			answer = reply(last)
+		}
 		_ = json.NewEncoder(rw).Encode(map[string]any{"choices": []map[string]any{
-			{"message": map[string]string{"role": "assistant", "content": cannedReply(last)}}}})
+			{"message": map[string]string{"role": "assistant", "content": answer}}}})
 	})
 	return mux
+}
+
+// SetReply answers with f instead of the canned line.
+func (g *Giga) SetReply(f func(prompt string) string) {
+	g.mu.Lock()
+	g.Reply = f
+	g.mu.Unlock()
 }
 
 func (g *Giga) Calls() []string {

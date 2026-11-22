@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -73,6 +74,10 @@ func (s *Speaker) Say(ctx context.Context, text string) error {
 		return err
 	}
 	resp.Body.Close()
+	// A refused line was never spoken: the agent must not wait for it or take it for his echo.
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("voice service: %s", resp.Status)
+	}
 	return nil
 }
 

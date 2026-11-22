@@ -106,6 +106,9 @@ type Agent struct {
 	following     string
 	botReplies    int
 	lastReply     time.Time
+	speechEnds    time.Time // when the voice service should be done with the lines queued so far
+	rudeness      map[string]*rudeTrack
+	spoken        spokenLog    // the last lines sent to the voice, to tell his own echo from players
 	lastSpoke     atomic.Int64 // unix nanos of the last chat line the bot sent
 	replyQueue    chan replyJob
 	directReplies chan replyJob
@@ -165,6 +168,7 @@ type Agent struct {
 	stillPos        explore.Pos
 	stillSince      time.Time
 	stuckCount      int // stuck spells in a row, a minute and a half apart at most
+	flyOuts         []flyOutTry
 	lastStuck       time.Time
 	lastChime       time.Time              // the last time he joined a talk he was not named in
 	chatPlayers     map[string]bool        // visible nicks; true when within speaking distance
@@ -490,11 +494,36 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		return
 	}
 	start := time.Now()
+	if source == "voice" && a.ownEcho(msg.Text, start) {
+		a.log.Info("skip: own voice echo", "nick", msg.Nick, "text", msg.Text)
+		return
+	}
+	// A muted troll is not heard at all - not answered, not counted against the nearby-talk quota,
+	// not put into the chat history the model reads. Only a plain stop is obeyed, silently:
+	// "Пыхтун, не стой, иди за мной" is no stop.
+	if a.cfg.PublicServer && a.muted(msg.Nick, start) {
+		if stopRule.MatchString(msg.Text) && !followRule.MatchString(msg.Text) {
+			a.log.Info("muted player stops the bot", "nick", msg.Nick, "text", msg.Text)
+			a.act(ctx, ActStop, msg.Nick)
+		} else {
+			a.log.Info("skip: rude player muted", "nick", msg.Nick, "text", msg.Text)
+		}
+		return
+	}
 	if a.lastSaidBy == nil || len(a.lastSaidBy) > 500 {
 		a.lastSaidBy = map[string]saidLine{}
 	}
 	a.lastSaidBy[strings.ToLower(msg.Nick)] = saidLine{text: msg.Text, at: start}
 	fromBot := slices.ContainsFunc(a.cfg.OtherBots, func(b string) bool { return strings.EqualFold(b, msg.Nick) })
+	// Insults count when said to the bot by name or aloud next to it, whether or not it would have
+	// answered that line; a fight between players across the map mutes nobody.
+	if a.cfg.PublicServer && !fromBot {
+		said := a.mentioned(msg.Text) || source == "voice" && rude(msg.Text) && a.speakerNear(ctx, msg.Nick, start)
+		if skip, why := a.rudeGate(msg.Nick, msg.Text, start, said); skip {
+			a.log.Info("skip: "+why, "nick", msg.Nick, "text", msg.Text)
+			return
+		}
+	}
 	nearbyTurn := false
 	if a.cfg.RequireMention && !fromBot && !a.mentioned(msg.Text) {
 		if a.cfg.PublicServer {
@@ -586,6 +615,20 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 	// blocks off asked him things aloud ("это бот, наверное", "вы не говорите английский?") and
 	// Laya's reply score (0.46) kept him silent every time.
 	if fromBot || nearbyTurn || a.mentioned(msg.Text) || d.Agreed && d.Action != ActWait {
+		if !d.Reply {
+			// The decision line above shows Laya's score; without this one a reply after
+			// "reply=false" looked like a bug when reading the logs (21.11).
+			why := "named"
+			switch {
+			case fromBot:
+				why = "bot"
+			case nearbyTurn:
+				why = "nearby"
+			case !a.mentioned(msg.Text):
+				why = "command"
+			}
+			a.log.Info("reply anyway", "nick", msg.Nick, "why", why)
+		}
 		d.Reply = true
 	}
 
@@ -609,17 +652,32 @@ func (a *Agent) handleMessage(ctx context.Context, msg chatlog.Message, source s
 		job := replyJob{history: slices.Clone(a.history), nick: msg.Nick, text: msg.Text, action: d.Action,
 			places: places, creative: a.creative, at: start}
 		if !fromBot && (nearbyTurn || source == "voice" || a.mentioned(msg.Text)) {
-			select {
-			case a.directReplies <- job:
-			case <-ctx.Done():
-				return
-			}
+			a.queueDirect(job)
 		} else {
 			a.enqueue(job)
 		}
 	}
 
 	a.remember(msg)
+}
+
+// queueDirect queues an answer to a player without ever blocking: this runs in the loop that also
+// takes in voice, chat and movement, and a full queue used to stop all of it until the reply worker
+// caught up. When the queue is full the oldest waiting answer gives way - by then it is stale.
+func (a *Agent) queueDirect(job replyJob) {
+	for {
+		select {
+		case a.directReplies <- job:
+			return
+		default:
+		}
+		select {
+		case a.directReplies <- job: // the worker took one meanwhile
+			return
+		case old := <-a.directReplies:
+			a.log.Info("reply queue full, dropped the oldest", "nick", old.nick, "text", old.text)
+		}
+	}
 }
 
 // enqueue keeps only the newest background job: GigaChat allows one stream, so a waiting job is
@@ -919,6 +977,8 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			a.log.Warn("gigachat", "err", err)
 			continue
 		}
+		raw := text        // the whole line, before cleanReply trims it to 120 runes: the shortening ask needs it
+		shortened := false // one extra model call spent on this answer already
 		text = cleanReply(text)
 		// Critic: a reply that promises movement while the bot stands still gets one rewrite
 		// on the accurate model, told plainly that it is not moving.
@@ -933,7 +993,7 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			fcancel()
 			if err == nil {
 				a.log.Info("critic: rewrote moving promise", "was", text)
-				text = cleanReply(fixed)
+				raw, text = fixed, cleanReply(fixed)
 			}
 		}
 		// Critic: a riddle that names its place is no riddle; one rewrite, told the word.
@@ -948,20 +1008,32 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			fcancel()
 			if err == nil {
 				a.log.Info("critic: rewrote a riddle naming its place", "was", text)
-				text = cleanReply(fixed)
+				raw, text = fixed, cleanReply(fixed)
 			}
 		}
-		if modelRefusal(text) {
+		if refusal, unfit := modelRefusal(text), unfitForHim(text); refusal || unfit {
 			// GigaChat's stock refusal, said aloud on SkyBars (21.11): "как и любая языковая модель,
-			// GigaChat не обладает собственным мнением". Never in the character's mouth.
-			a.log.Info("dropped a model refusal", "text", text)
+			// GigaChat не обладает собственным мнением". Never in the character's mouth; nor a
+			// troll's word echoed back ("Жопа так жопа", same day).
+			if refusal {
+				a.log.Info("dropped a model refusal", "text", text)
+			} else {
+				a.log.Info("dropped an unfit line", "text", text)
+			}
 			if job.ambient {
 				continue
 			}
 			text = refusalStandIns[rand.IntN(len(refusalStandIns))]
 		}
 		if a.cfg.PublicServer {
-			text = firstSentences(withoutBookWords(text), publicMaxRunes) // chat-sized, and two seconds of speech, not eight
+			text = withoutBookWords(text)
+			if cutsMidSentence(text, publicMaxRunes) {
+				if short, ok := a.sayShorter(ctx, llm, raw); ok && (job.prompt != "" || moving(job.action) || !promisesMove(short)) {
+					a.log.Info("shortened a long line", "was", text)
+					text, shortened = short, true
+				}
+			}
+			text = firstSentences(text, publicMaxRunes) // chat-sized, and a few seconds of speech, not eight
 		}
 		if a.cfg.PublicServer && !hasTopicWord(job.text, teaWord) && !hasTopicWord(job.text, burrowWord) {
 			if rest := withoutHomeTalk(text); rest != "" {
@@ -973,11 +1045,21 @@ func (a *Agent) replyWorker(ctx context.Context) {
 		spoken := text
 		text = chatReply(text)
 		// On a public server a repeat is skipped for answers too: a troll got "эй, ___xooox___,
-		// брови береги!" three times running (21.11).
-		// Answers to the same player as last time only: different players may each get the same
-		// greeting.
-		repeat := a.cfg.PublicServer && repeatsPublicAside(text, a.ownLines) &&
-			(job.ambient || strings.EqualFold(job.nick, a.lastAnswered))
+		// брови береги!" three times running (21.11). For different players only a near-verbatim
+		// line counts, and an answer gets one more try first: "Не бот я, хоббит старый..." went to
+		// five players in a minute, and skipping it would leave them all unanswered.
+		repeat := a.cfg.PublicServer && a.repeatsFor(job, text)
+		if repeat && !job.ambient && text != "" {
+			if again, ok := a.sayDifferently(ctx, llm, note, text, job, !shortened); ok {
+				a.log.Info("reworded a repeat", "was", text)
+				spoken, text = again, chatReply(again)
+				repeat = a.repeatsFor(job, text)
+			}
+			// Someone new asked: a repeated answer beats silence, which reads as not hearing them.
+			if repeat && !strings.EqualFold(job.nick, a.lastAnswered) {
+				repeat = false
+			}
+		}
 		if text == "" || repeat {
 			if text != "" {
 				a.log.Info("skip reply: repeats a recent line", "text", text)
@@ -988,7 +1070,7 @@ func (a *Agent) replyWorker(ctx context.Context) {
 			a.lastAnswered = job.nick
 		}
 		spoken = withoutLeadingNick(spoken)
-		if wait := a.cfg.ReplyEvery - time.Since(a.lastReply); wait > 0 {
+		if wait := a.replyWait(time.Now()); wait > 0 {
 			time.Sleep(wait)
 		}
 		a.lastReply = time.Now()
@@ -1015,6 +1097,10 @@ func (a *Agent) replyWorker(ctx context.Context) {
 		if a.speaker != nil {
 			if err := a.speaker.Say(ctx, spoken); err != nil {
 				a.log.Warn("voice", "err", err)
+			} else {
+				now := time.Now()
+				a.speechEnds = speechEnd(a.speechEnds, now, spoken)
+				a.rememberSpoken(spoken, now, a.speechEnds)
 			}
 		}
 		a.log.Info("said", "model", model, "text", text, "llm_ms", time.Since(llmStart).Milliseconds(),
@@ -1081,41 +1167,103 @@ func squeeze(s string) string {
 	return b.String()
 }
 
-// nickAliases: what players call a Latin nickname out loud or in Russian chat. p_agentttt gives
-// "pagent", "agent", "пагент", "агент".
+// nickAliases: what players call a Latin nickname out loud or in Russian chat, for any nick the
+// bot logs in with. p_agentttt gives "pagent", "agent", "пагент", "агент" (players on SkyBars,
+// 21.11, called him "Агент"); Pyhtun_Bot gives "пыхтун" and "пихтун"; Hobbit2009 gives "хобит";
+// BotinokAI gives "ботинок". Digits go, glued words split at capitals, doubled letters squeezed.
 func nickAliases(nick string) []string {
-	parts := nameWords(nick)
-	var out []string
+	parts := nickParts(nick)
+	var latin []string
 	if len(parts) > 1 {
-		out = append(out, strings.Join(parts, ""))
+		latin = append(latin, squeeze(strings.Join(parts, "")))
 	}
 	for _, p := range parts {
 		if len([]rune(p)) >= 4 {
-			out = append(out, p)
+			latin = append(latin, p)
 		}
 	}
-	for _, a := range slices.Clone(out) {
-		if ru := latinToCyrillic(a); ru != a {
-			out = append(out, ru)
-		}
+	out := slices.Clone(latin)
+	for _, a := range latin {
+		out = append(out, latinReadings(a)...)
 	}
-	return out
+	slices.Sort(out)
+	return slices.Compact(out)
 }
+
+// nickParts: the lower-case letter runs of a nick, split at non-letters and where a capital
+// follows a small letter ("BotinokAI" -> "botinok", "ai").
+func nickParts(nick string) []string {
+	var parts []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			parts = append(parts, squeeze(strings.ToLower(string(cur))))
+			cur = cur[:0]
+		}
+	}
+	var prev rune
+	for _, r := range nick {
+		switch {
+		case !unicode.IsLetter(r):
+			flush()
+		case unicode.IsUpper(r) && unicode.IsLower(prev):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+		prev = r
+	}
+	flush()
+	return parts
+}
+
+var latinDigraphs = []struct{ lat, ru string }{{"sch", "щ"}, {"ch", "ч"}, {"sh", "ш"}, {"zh", "ж"}, {"kh", "х"},
+	{"ph", "ф"}, {"th", "т"}, {"ts", "ц"}, {"ya", "я"}, {"yu", "ю"}, {"yo", "ё"}, {"ck", "к"}, {"ee", "и"}, {"oo", "у"}}
 
 var latinSounds = map[rune]string{'a': "а", 'b': "б", 'c': "к", 'd': "д", 'e': "е", 'f': "ф", 'g': "г",
 	'h': "х", 'i': "и", 'j': "дж", 'k': "к", 'l': "л", 'm': "м", 'n': "н", 'o': "о", 'p': "п", 'q': "к",
 	'r': "р", 's': "с", 't': "т", 'u': "у", 'v': "в", 'w': "в", 'x': "кс", 'y': "и", 'z': "з"}
 
-func latinToCyrillic(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if ru, ok := latinSounds[r]; ok {
-			b.WriteString(ru)
-		} else {
-			b.WriteRune(r)
-		}
+// latinReadings: how a Latin word is read in Russian. A lone "y" is "ы" or "и" (Pyhtun: "пыхтун",
+// though a strict reading gives "пихтун"), so both come back when there is one.
+func latinReadings(s string) []string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r < 128 && unicode.IsLetter(r) }) {
+		return nil
 	}
-	return squeeze(b.String())
+	read := func(y string) string {
+		var b strings.Builder
+		rs := []rune(s)
+		for i := 0; i < len(rs); {
+			matched := false
+			for _, d := range latinDigraphs {
+				if strings.HasPrefix(string(rs[i:]), d.lat) {
+					b.WriteString(d.ru)
+					i += len([]rune(d.lat))
+					matched = true
+					break
+				}
+			}
+			if matched {
+				continue
+			}
+			switch ru, ok := latinSounds[rs[i]]; {
+			case rs[i] == 'y':
+				b.WriteString(y)
+			case ok:
+				b.WriteString(ru)
+			default:
+				b.WriteRune(rs[i])
+			}
+			i++
+		}
+		return squeeze(b.String())
+	}
+	out := []string{read("и")}
+	if alt := read("ы"); alt != out[0] {
+		out = append(out, alt)
+	}
+	return out
 }
 
 // resetModState forgets everything the mod keeps only in the running client (build policy,
@@ -1140,6 +1288,7 @@ func (a *Agent) resetModState() {
 	a.flying, a.following, a.followAfter = false, "", ""
 	a.trip, a.outing, a.activity, a.leading = nil, nil, nil, false
 	a.game, a.beacon, a.gameGoal = nil, nil, nil // a game's places belong to the world it was in
+	a.flyOuts = nil                              // coordinates of another world
 }
 
 // lingerFor keeps the bot in place for at least d; a shorter wait never cuts a longer one.
@@ -1197,7 +1346,18 @@ func namesSomeone(text string) bool {
 		return false
 	}
 	w := words(head)
-	return len(w) >= 1 && len(w) <= 2 && !slices.ContainsFunc(w, func(s string) bool { return slices.Contains(toEveryone, s) })
+	return len(w) >= 1 && len(w) <= 2 && !slices.ContainsFunc(w, func(s string) bool { return slices.Contains(toEveryone, s) || filler(s) })
+}
+
+// filler: an interjection before the comma, not a name. "Ммм, как тебя зовут?" was taken as said
+// to a player called "Ммм" (SkyBars, 21.11).
+func filler(w string) bool {
+	w = strings.ToLower(w)
+	if r := []rune(w); len(r) > 0 && strings.Trim(w, string(r[0])) == "" {
+		return true // "ммм", "ааа", "э"
+	}
+	return slices.Contains([]string{"ну", "а", "ой", "ох", "ах", "эх", "хм", "хмм", "блин", "слушай", "короче",
+		"так", "ладно", "ага", "угу", "да", "нет", "вот", "кстати", "алло", "ало", "алё", "чё", "че", "бро", "чел", "йо"}, w)
 }
 
 // viewerEvery: one answer to the stream chat this often; a busy chat is not answered line by line.

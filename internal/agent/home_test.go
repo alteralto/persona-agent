@@ -267,3 +267,23 @@ func TestSimNoScoutingDuringAGame(t *testing.T) {
 		t.Fatal("went scouting during the riddle")
 	}
 }
+
+// SkyBars 21.11, 22:24-22:30: under a stall roof neither the elytra nor creative flight got out,
+// and the bot tried 48 times in six minutes. Now three fly-outs from one spot, then no more.
+func TestSimStopsFlyingOutWhereItKeepsFailing(t *testing.T) {
+	r := startSim(t, sim.Options{Mode: "creative", Fork: true, FreeSlots: 10, Elytra: true}, func(c *agent.Config) {
+		c.PublicServer, c.PublicCreative, c.Explore = true, true, true
+		c.ExploreAfter = 0
+		c.ExploreRadius = 2
+	})
+	r.w.AddPit(0, 0, 2)
+	r.w.AddRoof(0, 0, 3)
+	r.ready()
+	gaveUp := func() bool { return strings.Contains(r.log.String(), "flying out keeps failing here") }
+	r.waitFor("giving up on flight here", 60*time.Second, gaveUp)
+	before := r.w.Count("tool", "hoverTo") + r.w.Count("fly", "")
+	time.Sleep(25 * time.Second) // a few more stuck checks' worth
+	if after := r.w.Count("tool", "hoverTo") + r.w.Count("fly", ""); after > before {
+		t.Fatalf("kept trying to fly out: %d more tries", after-before)
+	}
+}

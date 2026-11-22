@@ -250,3 +250,26 @@ func TestFirstSentencesLongSentence(t *testing.T) {
 		t.Errorf("got %d runes: %q", n, got)
 	}
 }
+
+// Any nick the bot logs in with: players call it by the Russian reading of its parts.
+func TestNickAliasesForAnyNick(t *testing.T) {
+	for nick, heard := range map[string][]string{
+		"p_agentttt":   {"Агент, ты в натуре, бот?", "Алло, агенты бот?", "Пагент привет"},
+		"Pyhtun_Bot":   {"Пыхтун, привет", "пихтун привет", "Пыхтуна видел?"},
+		"Hobbit2009":   {"Хобит, иди сюда"},
+		"BotinokAI":    {"Ботинок, ты где?"},
+		"arcmlchikkk":  {"аркмлчик, привет"},
+		"xX_Pyhtun_Xx": {"пыхтун, лети сюда"},
+	} {
+		a := &Agent{cfg: Config{BotNick: nick}}
+		for _, s := range heard {
+			if !a.mentioned(s) {
+				t.Errorf("%s does not hear itself in %q (aliases %v)", nick, s, nickAliases(nick))
+			}
+		}
+	}
+	a := &Agent{cfg: Config{BotNick: "BotinokAI"}}
+	if a.mentioned("ai, привет") || a.mentioned("бот, привет") {
+		t.Error("a short part of the nick counts as its name")
+	}
+}

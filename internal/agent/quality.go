@@ -117,11 +117,21 @@ func withoutLeadingNick(text string) string {
 	return strings.ToUpper(string(r[0])) + string(r[1:])
 }
 
+// modelTalk: "языковая/языковые модель/модели", "генеративные (языковые) модели", "не обладает /
+// не обладают собственным мнением" - the words next to each other, so "для языкового пакета модели
+// мобов" is no refusal.
+var modelTalk = regexp.MustCompile(`(языков|генеративн)\S*\s+(языков\S*\s+)?модел|не\s+облада\S*\s+собственн\S*\s+мнени`)
+
 // modelRefusal: the model talking about itself instead of the character answering.
 func modelRefusal(text string) bool {
 	t := strings.ToLower(text)
-	for _, w := range []string{"языковая модель", "языковой модели", "gigachat", "гигачат", "нейросет",
-		"искусственный интеллект", "не обладаю собственным мнением", "не обладает собственным мнением",
+	// Stems, not phrases: on SkyBars (21.11) "генеративные языковые модели не обладают собственным
+	// мнением" and "к сожалению, иногда генеративные языковые модели могут создавать" were said
+	// aloud 11 times, the singular-only list never matched them.
+	if modelTalk.MatchString(t) {
+		return true
+	}
+	for _, w := range []string{"gigachat", "гигачат", "нейросет", "искусственный интеллект",
 		"не могу обсуждать", "не могу ответить на этот вопрос", "давайте поговорим о чём-нибудь ещё",
 		"как ии", "я ии", "чат-бот"} {
 		if strings.Contains(t, w) {
